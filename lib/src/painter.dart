@@ -16,10 +16,17 @@ double _reachOf(UnitPose pose, Rect cell) =>
         cell.longestSide +
     pose.blur * 3;
 
-/// Paints one unit of a [ShapedText] in a [UnitPose]: the whole painter is
-/// drawn under a transform about the unit's centre and clipped to the unit's
-/// cell — so a scaled letter grows into its side-bearings, a risen letter
-/// carries its clip with it, and the rest of the text is never touched.
+/// Paints one unit of a [ShapedText] in a [UnitPose].
+///
+/// The glyph is drawn AT REST, clipped to its cell, into a layer whose
+/// matrix image filter carries the pose — never under a raw canvas transform.
+/// Text engines place glyphs on the pixel grid (Impeller: quarter pixels in
+/// x, whole pixels in y) and re-rasterize the atlas at every new scale, so a
+/// letter translated or scaled directly steps pixel by pixel and shimmers
+/// while it moves. Resampling the resting raster instead (the trick behind
+/// `Transform.filterQuality`) is smooth at any fraction of a pixel; at rest
+/// the unit is not painted here at all, so the settled text is crisp vector
+/// text. Opacity and blur ride the same layer.
 void paintUnit(
   Canvas canvas,
   ShapedText shaped,
@@ -28,30 +35,52 @@ void paintUnit(
   Offset origin = Offset.zero,
 }) {
   final cell = shaped.cellOf(unit);
-  final needsLayer = pose.opacity < 1 || pose.blur > 0;
-  final cx = unit.rect.center.dx;
-  final cy = unit.rect.center.dy;
+  final moved = pose.dx != 0 ||
+      pose.dy != 0 ||
+      pose.scale != 1 ||
+      pose.scaleY != 1;
+  final needsLayer = moved || pose.opacity < 1 || pose.blur > 0;
   canvas.save();
   canvas.translate(origin.dx, origin.dy);
   if (needsLayer) {
-    final bounds =
-        cell.shift(Offset(pose.dx, pose.dy)).inflate(_reachOf(pose, cell));
     final paint = Paint()
       ..color = Color.fromRGBO(0, 0, 0, pose.opacity.clamp(0.0, 1.0));
+    ui.ImageFilter? filter;
     if (pose.blur > 0) {
-      paint.imageFilter = ui.ImageFilter.blur(
+      filter = ui.ImageFilter.blur(
         sigmaX: pose.blur,
         sigmaY: pose.blur,
         tileMode: TileMode.decal,
       );
     }
+    if (moved) {
+      final cx = unit.rect.center.dx;
+      final cy = unit.rect.center.dy;
+      final sx = pose.scale;
+      final sy = pose.scale * pose.scaleY;
+      // Scale about the unit's centre, then translate — column-major 4×4.
+      final m = Float64List(16)
+        ..[0] = sx
+        ..[5] = sy
+        ..[10] = 1
+        ..[12] = pose.dx + cx - sx * cx
+        ..[13] = pose.dy + cy - sy * cy
+        ..[15] = 1;
+      final motion = ui.ImageFilter.matrix(
+        m,
+        filterQuality: FilterQuality.medium,
+      );
+      filter = filter == null
+          ? motion
+          : ui.ImageFilter.compose(outer: motion, inner: filter);
+    }
+    paint.imageFilter = filter;
+    // Covers the resting glyph (what is drawn) and where the pose takes it.
+    final reach = _reachOf(pose, cell);
+    final bounds = cell
+        .inflate(reach)
+        .expandToInclude(cell.shift(Offset(pose.dx, pose.dy)).inflate(reach));
     canvas.saveLayer(bounds, paint);
-  }
-  canvas.translate(pose.dx, pose.dy);
-  if (pose.scale != 1 || pose.scaleY != 1) {
-    canvas.translate(cx, cy);
-    canvas.scale(pose.scale, pose.scale * pose.scaleY);
-    canvas.translate(-cx, -cy);
   }
   canvas.clipRect(cell);
   shaped.painter.paint(canvas, Offset.zero);

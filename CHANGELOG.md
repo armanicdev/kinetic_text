@@ -14,6 +14,13 @@
   angle, fully off past the drum's window — instead of sliding under a band
   clip that left a sliver of the old glyph showing. New `KineticEase.chase`
   (the ticker's exponential settle). The `travel` parameter is gone.
+- **Moving letters are resampled, not re-placed.** A posed unit is drawn at
+  rest into a layer whose matrix image filter carries the pose (the trick
+  behind `Transform.filterQuality`), so a 1 px drift or a 0.92→1 grow is
+  smooth at any fraction of a pixel. Under a raw canvas transform Impeller
+  snapped glyph y to whole pixels and re-rasterized the atlas at each scale,
+  which made a slow `Float` or `Glint` step pixel by pixel. Settled text is
+  still crisp vector text.
 - `UnitPose.scaleY` — a vertical squash effects can compose with `scale`.
 - `MorphStyle.exitEnd` / `enterStart` — where each leg of a morph runs; the
   band-clip hook (`clipToBand`) is removed.
