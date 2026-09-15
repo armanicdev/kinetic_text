@@ -1,0 +1,24 @@
+# Dart / pub — https://dart.dev/guides/libraries/private-files
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+build/
+doc/api/
+
+# A library pins nothing; consumers resolve their own versions.
+pubspec.lock
+example/pubspec.lock
+
+# Compiler and test artefacts
+*.dill
+*.snapshot
+coverage/
+
+# Editors / OS
+.idea/
+.vscode/
+.claude/
+*.iml
+*.swp
+.DS_Store

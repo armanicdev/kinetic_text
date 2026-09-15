@@ -1,0 +1,43 @@
+name: kinetic_text
+description: >-
+  Kinetic typography for Flutter — per-letter, per-word and per-line text motion
+  from ONE shaped paragraph: staggered reveals, sheen and shimmer sweeps,
+  gradient and rainbow ink on any span, sparkle, marker highlight, draw-on
+  underline, typewriter, and a text morph that rewrites a label in place. Every
+  script (Arabic, Kurdish, ligatures, bidi) stays correctly joined, because the
+  text is shaped once and the glyph clusters are re-drawn from that one layout.
+  No shaders to ship, ZERO external dependencies.
+version: 0.1.0
+
+# Authored by Armanic Studio (https://pub.dev/publishers/armanic.studio).
+repository: https://github.com/armanicdev/kinetic_text
+issue_tracker: https://github.com/armanicdev/kinetic_text/issues
+topics:
+  - text
+  - animation
+  - typography
+  - motion
+  - shimmer
+
+# The floor is what the code needs, not what the atelier runs: records and
+# switch expressions (Dart 3.0), `Color.withValues` / `.a` and `TextScaler`
+# (Flutter 3.27 ↔ Dart 3.6), `RenderBox.computeDryBaseline` (Flutter 3.22).
+# CI tests the floor as well as stable.
+environment:
+  sdk: ^3.6.0
+  flutter: '>=3.27.0'
+
+# Runtime dependencies: FLUTTER ONLY. Grapheme iteration comes from
+# `characters`, which the Flutter SDK already depends on and re-exports through
+# dart:ui / flutter/widgets — a consumer's `flutter pub get` pulls in nothing
+# beyond the SDK.
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # Open range: 6.x needs Dart 3.8, and the package floor (Dart 3.6, Flutter
+  # 3.27) must still resolve — CI proves the floor with 5.x.
+  flutter_lints: '>=5.0.0 <7.0.0'

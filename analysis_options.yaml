@@ -1,0 +1,6 @@
+# Lints for the kinetic_text package — flutter_lints is already a dev
+# dependency; this file is what actually turns it on for contributors.
+analyzer:
+  exclude:
+    - build/**
+include: package:flutter_lints/flutter.yaml

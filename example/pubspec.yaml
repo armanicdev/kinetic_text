@@ -1,0 +1,21 @@
+name: kinetic_text_example
+description: A tiny WidgetsApp showing a cascade, a flowing rainbow and an odometer morph.
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+  flutter: '>=3.27.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  kinetic_text:
+    path: ../
+
+dev_dependencies:
+  # Open range: 6.x needs Dart 3.8, and the package floor (Dart 3.6, Flutter
+  # 3.27) must still resolve — CI proves the floor with 5.x.
+  flutter_lints: '>=5.0.0 <7.0.0'
+
+flutter:
+  uses-material-design: false

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ── Correctness, across the Flutter range the package CLAIMS to support ────
+  # pubspec declares `flutter: '>=3.27.0'`. An untested lower bound is a
+  # promise nobody checked, so the matrix runs the floor as well as stable.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # "any" = the newest release on the stable channel.
+        flutter: ["3.27.0", "any"]
+    name: test (Flutter ${{ matrix.flutter }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ matrix.flutter }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test
+        run: flutter test --reporter=expanded
+
+      - name: Example resolves and analyzes
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos --fatal-warnings
+
+  publish-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter pub publish --dry-run
