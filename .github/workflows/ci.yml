@@ -19,7 +19,7 @@ jobs:
         flutter: ["3.27.0", "any"]
     name: test (Flutter ${{ matrix.flutter }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ matrix.flutter }}
@@ -43,7 +43,7 @@ jobs:
   publish-dry-run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           channel: stable

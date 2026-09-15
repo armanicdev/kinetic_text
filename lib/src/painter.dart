@@ -267,10 +267,10 @@ class KineticPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(KineticPainter old) =>
-      old.shaped != shaped ||
-      old.progress != progress ||
-      old.clock != clock ||
-      old.reduced != reduced ||
-      !listEquals(old.effects, effects);
+  bool shouldRepaint(KineticPainter oldDelegate) =>
+      oldDelegate.shaped != shaped ||
+      oldDelegate.progress != progress ||
+      oldDelegate.clock != clock ||
+      oldDelegate.reduced != reduced ||
+      !listEquals(oldDelegate.effects, effects);
 }

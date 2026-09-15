@@ -693,11 +693,11 @@ class _MorphPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_MorphPainter old) =>
-      old.from != from ||
-      old.to != to ||
-      old.progress != progress ||
-      old.style != style ||
-      old.align != align ||
-      old.up != up;
+  bool shouldRepaint(_MorphPainter oldDelegate) =>
+      oldDelegate.from != from ||
+      oldDelegate.to != to ||
+      oldDelegate.progress != progress ||
+      oldDelegate.style != style ||
+      oldDelegate.align != align ||
+      oldDelegate.up != up;
 }
