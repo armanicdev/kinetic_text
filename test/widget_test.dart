@@ -326,7 +326,7 @@ void _newEffectTests() {
     for (final effect in const <TextEffect>[
       Wave(),
       Pulse(color: accent),
-      Spotlight(color: accent),
+      Spotlight(focus: accent),
       Flicker(),
     ]) {
       await tester.pumpWidget(host(KineticText('Live now', effects: [effect])));

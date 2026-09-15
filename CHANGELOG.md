@@ -23,8 +23,9 @@
   still crisp vector text.
 - **Ten more effects.** Reveals `Bounce`, `Squeeze`, `Outline` (a stroke
   sweeps round each letter from a stroked twin of the same paragraph, then
-  the fill rises), `Scramble`; loops `Wave`, `Pulse`, `Spotlight` (a
-  per-letter alpha mask in one ink pass, the unlit letters held at `rest`),
+  the fill rises), `Scramble`; loops `Wave`, `Pulse`, `Spotlight` (the
+  shimmer's band as an alpha mask in one ink pass, the line held at `dim`,
+  an optional `focus` outline under the band),
   `Flicker`; morph styles `fold` (split-flap) and `wipe`.
 - `ShapedText.strokedTwin` — the same layout with a stroked ink, cached.
 - `UnitPose.scaleY` — a vertical squash effects can compose with `scale`.

@@ -65,6 +65,20 @@ class Shimmer extends TextEffect {
     return -band + travel * (1 + band * 2);
   }
 
+  /// The five stops of a feathered band centred at [p] with half-width [b]:
+  /// edge, shoulder, centre, shoulder, edge. [bandProfile] is the weight at
+  /// each.
+  static List<double> bandStops(double p, double b) => [
+        (p - b).clamp(0.0, 1.0),
+        (p - b * 0.45).clamp(0.0, 1.0),
+        p.clamp(0.0, 1.0),
+        (p + b * 0.45).clamp(0.0, 1.0),
+        (p + b).clamp(0.0, 1.0),
+      ];
+
+  /// The weight of the band at each of [bandStops].
+  static const List<double> bandProfile = [0, 0.35, 1, 0.35, 0];
+
   @override
   void apply(TextFrame frame, UnitSlice slice) {
     if (slice.isEmpty) return;
@@ -113,13 +127,7 @@ class Shimmer extends TextEffect {
         color.withValues(alpha: color.a * k * 0.35),
         color.withValues(alpha: 0),
       ];
-      stops = [
-        (p - b).clamp(0.0, 1.0),
-        (p - b * 0.45).clamp(0.0, 1.0),
-        p.clamp(0.0, 1.0),
-        (p + b * 0.45).clamp(0.0, 1.0),
-        (p + b).clamp(0.0, 1.0),
-      ];
+      stops = bandStops(p, b);
     }
     frame.ink.add(InkPass(
       units: slice.units,
@@ -398,136 +406,135 @@ class Pulse extends TextEffect {
   int get hashCode => Object.hash(color, period, intensity, blendMode);
 }
 
-/// A light travels along the line in reading order; the letters under it are
-/// full ink and the rest sit dimmed at [rest]. Each letter snaps up as the
-/// light reaches it and drops as it passes — the lighting is per letter, not
-/// a soft gradient — while the light itself glides on an in-out ease and
-/// pauses at the far end before the next pass.
+/// The [Shimmer]'s band, turned into light: the text sits at [dim] and the
+/// letters under the band are full ink — the band itself is the sweep, the
+/// feather and the ease the shimmer has, so a Kurdish label is lit in its
+/// reading order. Optionally the band also draws a [focus] outline round the
+/// letters it passes, so the light reads as a focus ring travelling the word.
 ///
-/// Costs one alpha-mask ink pass per frame and not a single layer per letter,
-/// so it is fine on a whole line.
+/// The dim level eases in as a sweep starts and out as it ends, so the line
+/// is plain full ink while it rests between sweeps. One alpha-mask ink pass
+/// per frame (plus one masked stroke when [focus] is set); no layer per
+/// letter.
 class Spotlight extends TextEffect {
-  /// Dim the unlit letters to [rest]; light [radius] letters either side of
-  /// the beam; one pass every [period], holding the whole line lit for the
-  /// last [pause] of it. [color] tints the lit letters.
+  /// Hold the unlit letters at [dim]; a band [band] wide (as a fraction of
+  /// the slice) sweeps every [period], resting for [rest] of it.
   const Spotlight({
-    this.rest = 0.3,
-    this.radius = 1.2,
-    this.period = const Duration(milliseconds: 2600),
-    this.pause = 0.2,
-    this.color,
-    this.bounce = false,
+    this.dim = 0.3,
+    this.band = 0.22,
+    this.period = const Duration(milliseconds: 3600),
+    this.rest = 0.5,
+    this.focus,
+    this.focusWidth = 1.2,
   });
 
-  /// Opacity of a letter outside the light, `0..1`.
-  final double rest;
+  /// Opacity of a letter outside the band, `0..1`.
+  final double dim;
 
-  /// Half-width of the light, in letters.
-  final double radius;
+  /// Half-width of the band as a fraction of the slice, `0.02..0.49`.
+  final double band;
 
-  /// One pass plus its pause.
+  /// One sweep plus its rest.
   final Duration period;
 
-  /// Fraction of each period the whole line rests fully lit, `0..0.8`.
-  final double pause;
+  /// Fraction of each period spent at rest, fully lit, `0..0.85`.
+  final double rest;
 
-  /// A tint for the lit letters, or null for pure light.
-  final Color? color;
+  /// Draw the letters' outline in this colour under the band. Null = light
+  /// only.
+  final Color? focus;
 
-  /// Alternate direction on every pass instead of restarting from the head.
-  final bool bounce;
+  /// The focus outline's stroke width, logical pixels.
+  final double focusWidth;
 
   @override
   bool get continuous => true;
 
-  /// Where the beam is, in letter indices (`-radius` … `n - 1 + radius`), at
-  /// pass progress [eased]; null while the line pauses fully lit.
-  static double beamAt(double eased, int n, double radius, {required bool back}) {
-    final from = -radius;
-    final to = n - 1 + radius;
-    return back ? to + (from - to) * eased : from + (to - from) * eased;
+  /// How far the dimming is in at sweep progress [raw]: it fades in over
+  /// the first tenth of a sweep and out over the last, so the rest between
+  /// sweeps is reached without a jump.
+  static double dimEnvelope(double raw) {
+    const edge = 0.1;
+    final head = (raw / edge).clamp(0.0, 1.0);
+    final tail = ((1 - raw) / edge).clamp(0.0, 1.0);
+    return KineticEase.sweep.transform(math.min(head, tail));
   }
 
   @override
   void apply(TextFrame frame, UnitSlice slice) {
-    final n = slice.length;
-    if (n == 0) return;
+    if (slice.isEmpty) return;
     final periodS = period.inMicroseconds / 1e6;
     if (periodS <= 0) return;
-    final cycles = frame.time / periodS;
-    final phase = cycles % 1.0;
-    final travel = (1 - pause).clamp(0.2, 1.0);
-    final raw = phase / travel;
-    if (raw >= 1) return; // pause: the line rests fully lit — plain paint
-    final back = bounce && cycles.floor().isOdd;
+    final phase = (frame.time / periodS) % 1.0;
+    final sweep = (1 - rest).clamp(0.15, 1.0);
+    final raw = phase / sweep;
+    if (raw >= 1) return; // resting — plain text, no mask, no layer
+    final b = band.clamp(0.02, 0.49);
     final eased = KineticEase.sweep.transform(raw);
-    final beam = beamAt(eased, n, radius, back: back);
+    final p = Shimmer.bandCenter(eased, b, rtl: frame.isRtl);
     final shaped = frame.shaped;
     final bounds = shaped.boundsOf(slice.units);
     if (bounds.width <= 0) return;
-    final dim = rest.clamp(0.0, 1.0);
-    // Piecewise-constant stops: one level per letter, in physical order.
-    final order = List<int>.generate(n, (k) => k)
-      ..sort((a, b) => shaped.units[slice.units[a]].rect.left
-          .compareTo(shaped.units[slice.units[b]].rect.left));
-    final stops = <double>[];
-    final mask = <Color>[];
-    final tint = <Color>[];
-    final c = color;
-    for (final k in order) {
-      final r = shaped.units[slice.units[k]].rect;
-      final d = (k - beam).abs();
-      // Snap: full inside the beam, a half-letter shoulder, dim outside.
-      final lit = 1 - ((d - radius + 0.25) / 0.5).clamp(0.0, 1.0);
-      final level = dim + (1 - dim) * lit;
-      final l = ((r.left - bounds.left) / bounds.width).clamp(0.0, 1.0);
-      final rr = ((r.right - bounds.left) / bounds.width).clamp(0.0, 1.0);
-      stops..add(l)..add(rr);
-      final m = Color.fromRGBO(255, 255, 255, level);
-      mask..add(m)..add(m);
-      if (c != null) {
-        final t = c.withValues(alpha: c.a * lit);
-        tint..add(t)..add(t);
-      }
-    }
+    final level = lerp(1, dim.clamp(0.0, 1.0), dimEnvelope(raw));
+    final stops = Shimmer.bandStops(p, b);
     frame.ink.add(InkPass(
       units: slice.units,
       bounds: bounds,
       gradient: LinearGradient(
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
-        colors: mask,
+        colors: [
+          for (final w in Shimmer.bandProfile)
+            Color.fromRGBO(255, 255, 255, lerp(level, 1, w)),
+        ],
         stops: stops,
       ),
       blendMode: BlendMode.dstIn,
     ));
-    if (c != null) {
-      frame.ink.add(InkPass(
-        units: slice.units,
-        bounds: bounds,
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: tint,
-          stops: stops,
-        ),
-        blendMode: BlendMode.srcATop,
-      ));
-    }
+    final f = focus;
+    if (f == null) return;
+    frame.over.add((canvas, fr) {
+      final twin = shaped.strokedTwin(width: focusWidth, color: f);
+      final cells = Path();
+      for (final i in slice.units) {
+        cells.addRect(shaped.cellOf(shaped.units[i]));
+      }
+      final cover = cells.getBounds();
+      canvas.save();
+      canvas.clipPath(cells);
+      canvas.saveLayer(cover, Paint());
+      twin.paint(canvas, Offset.zero);
+      canvas.drawRect(
+        cover,
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..shader = LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              for (final w in Shimmer.bandProfile)
+                Color.fromRGBO(255, 255, 255, w),
+            ],
+            stops: stops,
+          ).createShader(bounds, textDirection: shaped.direction),
+      );
+      canvas.restore();
+      canvas.restore();
+    });
   }
 
   @override
   bool operator ==(Object other) =>
       other is Spotlight &&
-      other.rest == rest &&
-      other.radius == radius &&
+      other.dim == dim &&
+      other.band == band &&
       other.period == period &&
-      other.pause == pause &&
-      other.color == color &&
-      other.bounce == bounce;
+      other.rest == rest &&
+      other.focus == focus &&
+      other.focusWidth == focusWidth;
 
   @override
-  int get hashCode => Object.hash(rest, radius, period, pause, color, bounce);
+  int get hashCode => Object.hash(dim, band, period, rest, focus, focusWidth);
 }
 
 /// A few letters stutter dark and recover, like a sign with a loose contact.

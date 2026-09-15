@@ -89,7 +89,7 @@ TextMorph(title, style: headline, morph: MorphStyle.sheen(sheen: [accent]));
 | Loop | `Float` | A tiny slow drift, each letter a beat behind |
 | Loop | `Wave` | A rounded ripple runs through the line |
 | Loop | `Pulse` | A slow glow breathes through the ink, no motion |
-| Loop | `Spotlight` | A light travels the line; letters snap up under it, the rest sit dim |
+| Loop | `Spotlight` | The shimmer's band as light: the line sits dim, letters under it are full ink, optional focus outline |
 | Loop | `Flicker` | One or two letters stutter dark and recover (a loose sign) |
 | Ink | `GradientInk` | Gradient fill on a span, `rainbow`, optional flow |
 | Ink | `Tint` | Flat recolour of a span, no relayout |

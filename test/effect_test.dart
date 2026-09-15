@@ -144,13 +144,14 @@ void _rollTests() {
 }
 
 void _secondTenTests() {
-  test('spotlight: the beam crosses the line in reading order and snaps per letter', () {
-    expect(Spotlight.beamAt(0, 6, 1.2, back: false), closeTo(-1.2, 1e-9));
-    expect(Spotlight.beamAt(1, 6, 1.2, back: false), closeTo(6.2, 1e-9));
-    expect(Spotlight.beamAt(0, 6, 1.2, back: true), closeTo(6.2, 1e-9));
+  test('spotlight rides the shimmer band and eases its dimming in and out', () {
+    expect(Spotlight.dimEnvelope(0), 0, reason: 'a sweep starts fully lit');
+    expect(Spotlight.dimEnvelope(0.5), 1, reason: 'mid-sweep the rest is dim');
+    expect(Spotlight.dimEnvelope(1), 0, reason: 'and ends fully lit again');
+    expect(Shimmer.bandStops(0.5, 0.2).length, Shimmer.bandProfile.length);
     expect(const Spotlight().continuous, isTrue);
     expect(const Spotlight(), const Spotlight());
-    expect(const Spotlight(rest: 0.5), isNot(const Spotlight()));
+    expect(const Spotlight(dim: 0.5), isNot(const Spotlight()));
   });
 
   test('flicker envelope is off at the start and on at the end', () {
