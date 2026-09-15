@@ -41,7 +41,7 @@ class _ExampleState extends State<Example> {
                 const SizedBox(height: 16),
                 GestureDetector(
                   onTap: () => setState(() => _amount += 2500),
-                  child: TextMorph('$_amount IQD', morph: const MorphStyle.roll()),
+                  child: TextMorph('$_amount', morph: const MorphStyle.roll()),
                 ),
               ],
             ),

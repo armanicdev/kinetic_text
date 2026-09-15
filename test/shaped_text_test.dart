@@ -55,7 +55,7 @@ void main() {
   });
 
   test('a run resolves to its units and a cell is open past a single line', () {
-    final s = shape('Pay 12,000 IQD');
+    final s = shape('Pay 12,000 now');
     final amount = s.unitsInRange(4, 10);
     expect(amount.length, 6);
     expect(s.text.substring(s.units[amount.first].start, s.units[amount.last].end), '12,000');

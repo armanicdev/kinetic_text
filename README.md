@@ -52,7 +52,7 @@ KineticText(
 // A rainbow on one word, a marker under another — the rest plain.
 KineticText.rich([
   const TextRun('Pay '),
-  TextRun('12,000 IQD', effects: [Highlight(color: tint), Underline(color: accent)]),
+  TextRun('12,000', effects: [Highlight(color: tint), Underline(color: accent)]),
   const TextRun(' before '),
   TextRun('Friday', effects: [GradientInk.rainbow(seed: accent, flow: const Duration(seconds: 4))]),
 ], style: body);
@@ -61,7 +61,7 @@ KineticText.rich([
 KineticText('Pay now', style: label, effects: const [Shimmer()]);
 
 // A value that rewrites itself — digits roll like an odometer.
-TextMorph('$amount IQD', style: figure, morph: const MorphStyle.roll());
+TextMorph('$amount', style: figure, morph: const MorphStyle.roll());
 
 // A title that dissolves into the next one under a sheen.
 TextMorph(title, style: headline, morph: MorphStyle.sheen(sheen: [accent]));

@@ -51,8 +51,8 @@ void main() {
       );
 
   test('morph diff keeps a shared suffix and prefix', () {
-    final a = shape('Runaki Bill');
-    final b = shape('Legacy Bill');
+    final a = shape('Autumn Sale');
+    final b = shape('Winter Sale');
     final d = MorphDiff.between(a, b);
     expect((d.prefix, d.suffix), (0, 4));
     final c = shape('12,000');
@@ -108,7 +108,7 @@ void main() {
   });
 
   test('the odometer reads Western and Arabic-Indic digits', () {
-    expect(TextMorph.numberIn('12,000 IQD'), 12000);
+    expect(TextMorph.numberIn('12,000'), 12000);
     expect(TextMorph.numberIn('12.5'), 12.5);
     expect(TextMorph.numberIn('٤٥٠ د.ع'), 450);
     expect(TextMorph.numberIn('۱۲,۵۰۰'), 12500);

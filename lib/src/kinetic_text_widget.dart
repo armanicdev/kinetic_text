@@ -84,7 +84,7 @@ class KineticController {
 ///
 /// KineticText.rich([
 ///   const TextRun('Pay '),
-///   TextRun('12,000 IQD', effects: [Highlight(color: tint)]),
+///   TextRun('12,000', effects: [Highlight(color: tint)]),
 /// ], style: theme.body)
 /// ```
 ///

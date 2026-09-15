@@ -63,7 +63,7 @@ void main() {
     await tester.pumpWidget(host(KineticText.rich(
       [
         const TextRun('Pay '),
-        TextRun('12,000 IQD', effects: const [
+        TextRun('12,000', effects: const [
           Highlight(color: Color(0x3300FF00)),
           Underline(color: Color(0xFF0000FF)),
         ]),
@@ -114,17 +114,17 @@ void main() {
       MorphStyle.crossfade(),
     ]) {
       Widget build(String t) => host(TextMorph(t, morph: style, duration: const Duration(milliseconds: 200)));
-      await tester.pumpWidget(build('12,000 IQD'));
-      await tester.pumpWidget(build('120,500 IQD'));
+      await tester.pumpWidget(build('12,000'));
+      await tester.pumpWidget(build('120,500'));
       await tester.pump(const Duration(milliseconds: 50));
       expect(tester.takeException(), isNull, reason: '$style');
       await tester.pump(const Duration(milliseconds: 60));
       // Interrupt mid-flight.
-      await tester.pumpWidget(build('Legacy Bill'));
+      await tester.pumpWidget(build('Winter Sale'));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 150));
       expect(tester.takeException(), isNull, reason: '$style');
-      expect(find.bySemanticsLabel('Legacy Bill'), findsOneWidget);
+      expect(find.bySemanticsLabel('Winter Sale'), findsOneWidget);
     }
   });
 
