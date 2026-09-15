@@ -298,3 +298,300 @@ class Float extends TextEffect {
   @override
   int get hashCode => Object.hash(amplitude, period, phaseStep);
 }
+
+/// A rounded ripple runs through the line in reading order, each letter a
+/// beat behind the last. Louder than [Float] — a wave is a gesture, not an
+/// idle — so keep it to a word or a short hero line.
+class Wave extends TextEffect {
+  /// Rise and fall [amplitude] pixels; one crest every [period]; [length]
+  /// letters from crest to crest.
+  const Wave({
+    this.amplitude = 3,
+    this.period = const Duration(milliseconds: 2200),
+    this.length = 8,
+  });
+
+  /// Peak vertical travel, logical pixels.
+  final double amplitude;
+
+  /// One full cycle at any one letter.
+  final Duration period;
+
+  /// Letters per wavelength.
+  final double length;
+
+  @override
+  bool get continuous => true;
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    final periodS = period.inMicroseconds / 1e6;
+    if (periodS <= 0 || length <= 0) return;
+    final w = tau * frame.time / periodS;
+    for (var k = 0; k < slice.length; k++) {
+      frame.pose(slice.units[k]).dy += amplitude * math.sin(w - k / length * tau);
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Wave &&
+      other.amplitude == amplitude &&
+      other.period == period &&
+      other.length == length;
+
+  @override
+  int get hashCode => Object.hash(amplitude, period, length);
+}
+
+/// A slow glow breathes through the letters' ink — for a "live" or "waiting"
+/// label that should hold attention without moving. One ink pass, no pose,
+/// no layer per letter.
+class Pulse extends TextEffect {
+  /// Breathe [color] into the ink up to [intensity] every [period].
+  const Pulse({
+    required this.color,
+    this.period = const Duration(milliseconds: 1800),
+    this.intensity = 0.6,
+    this.blendMode = BlendMode.srcATop,
+  });
+
+  /// The glow.
+  final Color color;
+
+  /// One breath in and out.
+  final Duration period;
+
+  /// Peak glow opacity as a fraction of the colour's own alpha.
+  final double intensity;
+
+  /// [BlendMode.srcATop] tints the ink; [BlendMode.srcIn] replaces it.
+  final BlendMode blendMode;
+
+  @override
+  bool get continuous => true;
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    if (slice.isEmpty) return;
+    final periodS = period.inMicroseconds / 1e6;
+    if (periodS <= 0) return;
+    final env = 0.5 - 0.5 * math.cos(tau * frame.time / periodS);
+    final a = color.a * intensity * env;
+    if (a <= 0.004) return;
+    frame.ink.add(InkPass(
+      units: slice.units,
+      color: color.withValues(alpha: a),
+      blendMode: blendMode,
+    ));
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Pulse &&
+      other.color == color &&
+      other.period == period &&
+      other.intensity == intensity &&
+      other.blendMode == blendMode;
+
+  @override
+  int get hashCode => Object.hash(color, period, intensity, blendMode);
+}
+
+/// A light travels along the line in reading order; the letters under it are
+/// full ink and the rest sit dimmed at [rest]. Each letter snaps up as the
+/// light reaches it and drops as it passes — the lighting is per letter, not
+/// a soft gradient — while the light itself glides on an in-out ease and
+/// pauses at the far end before the next pass.
+///
+/// Costs one alpha-mask ink pass per frame and not a single layer per letter,
+/// so it is fine on a whole line.
+class Spotlight extends TextEffect {
+  /// Dim the unlit letters to [rest]; light [radius] letters either side of
+  /// the beam; one pass every [period], holding the whole line lit for the
+  /// last [pause] of it. [color] tints the lit letters.
+  const Spotlight({
+    this.rest = 0.3,
+    this.radius = 1.2,
+    this.period = const Duration(milliseconds: 2600),
+    this.pause = 0.2,
+    this.color,
+    this.bounce = false,
+  });
+
+  /// Opacity of a letter outside the light, `0..1`.
+  final double rest;
+
+  /// Half-width of the light, in letters.
+  final double radius;
+
+  /// One pass plus its pause.
+  final Duration period;
+
+  /// Fraction of each period the whole line rests fully lit, `0..0.8`.
+  final double pause;
+
+  /// A tint for the lit letters, or null for pure light.
+  final Color? color;
+
+  /// Alternate direction on every pass instead of restarting from the head.
+  final bool bounce;
+
+  @override
+  bool get continuous => true;
+
+  /// Where the beam is, in letter indices (`-radius` … `n - 1 + radius`), at
+  /// pass progress [eased]; null while the line pauses fully lit.
+  static double beamAt(double eased, int n, double radius, {required bool back}) {
+    final from = -radius;
+    final to = n - 1 + radius;
+    return back ? to + (from - to) * eased : from + (to - from) * eased;
+  }
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    final n = slice.length;
+    if (n == 0) return;
+    final periodS = period.inMicroseconds / 1e6;
+    if (periodS <= 0) return;
+    final cycles = frame.time / periodS;
+    final phase = cycles % 1.0;
+    final travel = (1 - pause).clamp(0.2, 1.0);
+    final raw = phase / travel;
+    if (raw >= 1) return; // pause: the line rests fully lit — plain paint
+    final back = bounce && cycles.floor().isOdd;
+    final eased = KineticEase.sweep.transform(raw);
+    final beam = beamAt(eased, n, radius, back: back);
+    final shaped = frame.shaped;
+    final bounds = shaped.boundsOf(slice.units);
+    if (bounds.width <= 0) return;
+    final dim = rest.clamp(0.0, 1.0);
+    // Piecewise-constant stops: one level per letter, in physical order.
+    final order = List<int>.generate(n, (k) => k)
+      ..sort((a, b) => shaped.units[slice.units[a]].rect.left
+          .compareTo(shaped.units[slice.units[b]].rect.left));
+    final stops = <double>[];
+    final mask = <Color>[];
+    final tint = <Color>[];
+    final c = color;
+    for (final k in order) {
+      final r = shaped.units[slice.units[k]].rect;
+      final d = (k - beam).abs();
+      // Snap: full inside the beam, a half-letter shoulder, dim outside.
+      final lit = 1 - ((d - radius + 0.25) / 0.5).clamp(0.0, 1.0);
+      final level = dim + (1 - dim) * lit;
+      final l = ((r.left - bounds.left) / bounds.width).clamp(0.0, 1.0);
+      final rr = ((r.right - bounds.left) / bounds.width).clamp(0.0, 1.0);
+      stops..add(l)..add(rr);
+      final m = Color.fromRGBO(255, 255, 255, level);
+      mask..add(m)..add(m);
+      if (c != null) {
+        final t = c.withValues(alpha: c.a * lit);
+        tint..add(t)..add(t);
+      }
+    }
+    frame.ink.add(InkPass(
+      units: slice.units,
+      bounds: bounds,
+      gradient: LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: mask,
+        stops: stops,
+      ),
+      blendMode: BlendMode.dstIn,
+    ));
+    if (c != null) {
+      frame.ink.add(InkPass(
+        units: slice.units,
+        bounds: bounds,
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: tint,
+          stops: stops,
+        ),
+        blendMode: BlendMode.srcATop,
+      ));
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Spotlight &&
+      other.rest == rest &&
+      other.radius == radius &&
+      other.period == period &&
+      other.pause == pause &&
+      other.color == color &&
+      other.bounce == bounce;
+
+  @override
+  int get hashCode => Object.hash(rest, radius, period, pause, color, bounce);
+}
+
+/// A few letters stutter dark and recover, like a sign with a loose contact.
+/// For error and offline states: short, rare, one or two letters at a time.
+class Flicker extends TextEffect {
+  /// [count] letters flicker, each once per [period], dropping to
+  /// `1 - depth` at the darkest.
+  const Flicker({
+    this.count = 2,
+    this.period = const Duration(milliseconds: 2400),
+    this.depth = 0.85,
+    this.seed = 5,
+  });
+
+  /// How many letters take part.
+  final int count;
+
+  /// One letter's full cycle; it flickers for a short window of it.
+  final Duration period;
+
+  /// How dark the darkest dip goes, `0..1`.
+  final double depth;
+
+  /// Seed for which letters and when.
+  final int seed;
+
+  @override
+  bool get continuous => true;
+
+  /// The brightness of a flickering letter at [t] ∈ 0..1 of its window: two
+  /// hard dips, a half-recovery between them, then back on.
+  static double envelope(double t) {
+    if (t < 0.25) return 0;
+    if (t < 0.4) return 1;
+    if (t < 0.55) return 0.15;
+    if (t < 0.7) return 0.8;
+    if (t < 0.8) return 0.3;
+    return 1;
+  }
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    if (slice.isEmpty || count <= 0) return;
+    final periodS = period.inMicroseconds / 1e6;
+    if (periodS <= 0) return;
+    const window = 0.14;
+    for (var j = 0; j < count; j++) {
+      final k = (hash01(j, seed) * slice.length).floor().clamp(0, slice.length - 1);
+      final phase = hash01(j + 77, seed);
+      final t = ((frame.time / periodS) + phase) % 1.0;
+      if (t >= window) continue;
+      final on = envelope(t / window);
+      frame.pose(slice.units[k]).opacity *= 1 - depth * (1 - on);
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Flicker &&
+      other.count == count &&
+      other.period == period &&
+      other.depth == depth &&
+      other.seed == seed;
+
+  @override
+  int get hashCode => Object.hash(count, period, depth, seed);
+}

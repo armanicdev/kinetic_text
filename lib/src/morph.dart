@@ -51,6 +51,14 @@ abstract class MorphStyle {
   /// A plain per-letter cross-fade.
   const factory MorphStyle.crossfade() = CrossfadeMorph;
 
+  /// Split-flap: the old letter folds down from its top edge, the new one
+  /// unfolds up from its bottom edge — the departure board.
+  const factory MorphStyle.fold({double stagger}) = FoldMorph;
+
+  /// A soft edge wipes the old text out and the new text in behind it, in
+  /// reading order — the quiet swap for a title when a roll is too much.
+  const factory MorphStyle.wipe({double stagger}) = WipeMorph;
+
   /// How much of each leg is spent starting units.
   final double stagger;
 
@@ -238,6 +246,73 @@ class RollMorph extends MorphStyle {
 
   @override
   bool operator ==(Object other) => other is RollMorph && sameBase(other);
+
+  @override
+  int get hashCode => baseHash;
+}
+
+/// The departure board. See [MorphStyle.fold].
+class FoldMorph extends MorphStyle {
+  /// Flaps turn in reading order, each a beat after the last.
+  const FoldMorph({super.stagger = 0.3})
+      : super(
+          exitCurve: KineticEase.depart,
+          enterCurve: KineticEase.arrive,
+          exitEnd: 0.5,
+          enterStart: 0.5,
+        );
+
+  /// Hinged at the top: the glyph foreshortens to a line while its centre
+  /// rises to the hinge.
+  @override
+  void exit(UnitPose pose, double e, double lineHeight, bool up) {
+    final s = math.cos(e * math.pi / 2).clamp(0.02, 1.0);
+    pose.scaleY *= s;
+    pose.dy += -(1 - s) * lineHeight / 2;
+    pose.opacity *= 0.55 + 0.45 * s;
+  }
+
+  /// Hinged at the bottom: unfolds up into place.
+  @override
+  void enter(UnitPose pose, double e, double lineHeight, bool up) {
+    final s = math.sin(e * math.pi / 2).clamp(0.02, 1.0);
+    pose.scaleY *= s;
+    pose.dy += (1 - s) * lineHeight / 2;
+    pose.opacity *= 0.55 + 0.45 * s;
+  }
+
+  @override
+  bool operator ==(Object other) => other is FoldMorph && sameBase(other);
+
+  @override
+  int get hashCode => baseHash;
+}
+
+/// The quiet swap. See [MorphStyle.wipe].
+class WipeMorph extends MorphStyle {
+  /// A long stagger makes the edge; each letter's own fade is quick.
+  const WipeMorph({super.stagger = 0.8})
+      : super(
+          exitCurve: KineticEase.depart,
+          enterCurve: KineticEase.arrive,
+          exitEnd: 0.7,
+          enterStart: 0.3,
+        );
+
+  @override
+  void exit(UnitPose pose, double e, double lineHeight, bool up) {
+    pose.opacity *= 1 - e;
+    pose.dy += -lineHeight * 0.06 * e;
+  }
+
+  @override
+  void enter(UnitPose pose, double e, double lineHeight, bool up) {
+    pose.opacity *= e;
+    pose.dy += lineHeight * 0.06 * (1 - e);
+  }
+
+  @override
+  bool operator ==(Object other) => other is WipeMorph && sameBase(other);
 
   @override
   int get hashCode => baseHash;

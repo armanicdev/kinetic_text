@@ -4,6 +4,7 @@ import 'package:kinetic_text/kinetic_text.dart';
 
 void main() {
   _rollTests();
+  _secondTenTests();
   test('staggered: first starts at once, last starts at the stagger', () {
     expect(staggered(0, 0, 5, 0.5), 0);
     expect(staggered(0.5, 0, 5, 0.5), 1);
@@ -139,5 +140,54 @@ void _rollTests() {
     expect(KineticEase.chase.transform(1), 1);
     expect(KineticEase.chase.transform(0.25), greaterThan(0.6));
     expect(KineticEase.chase.transform(0.5), lessThan(KineticEase.chase.transform(0.75)));
+  });
+}
+
+void _secondTenTests() {
+  test('spotlight: the beam crosses the line in reading order and snaps per letter', () {
+    expect(Spotlight.beamAt(0, 6, 1.2, back: false), closeTo(-1.2, 1e-9));
+    expect(Spotlight.beamAt(1, 6, 1.2, back: false), closeTo(6.2, 1e-9));
+    expect(Spotlight.beamAt(0, 6, 1.2, back: true), closeTo(6.2, 1e-9));
+    expect(const Spotlight().continuous, isTrue);
+    expect(const Spotlight(), const Spotlight());
+    expect(const Spotlight(rest: 0.5), isNot(const Spotlight()));
+  });
+
+  test('flicker envelope is off at the start and on at the end', () {
+    expect(Flicker.envelope(0), 0);
+    expect(Flicker.envelope(0.99), 1);
+    expect(const Flicker().count, 2);
+  });
+
+  test('the second ten compare by value', () {
+    const accent = Color(0xFF3366FF);
+    expect(const Bounce(), const Bounce());
+    expect(const Bounce(distance: 30), isNot(const Bounce()));
+    expect(const Squeeze(), const Squeeze());
+    expect(const Outline(color: accent), const Outline(color: accent));
+    expect(const Outline(color: accent, width: 2), isNot(const Outline(color: accent)));
+    expect(const Scramble(), const Scramble());
+    expect(const Scramble(seed: 9), isNot(const Scramble()));
+    expect(const Wave(), const Wave());
+    expect(const Pulse(color: accent), const Pulse(color: accent));
+    expect(const Flicker(), const Flicker());
+    expect(const MorphStyle.fold(), const MorphStyle.fold());
+    expect(const MorphStyle.wipe(), isNot(const MorphStyle.fold()));
+    expect(const MorphStyle.wipe(stagger: 0.5), isNot(const MorphStyle.wipe()));
+  });
+
+  test('fold hinges: exit leaves through the top, entry arrives from the bottom', () {
+    const fold = MorphStyle.fold() as FoldMorph;
+    final leaving = UnitPose();
+    fold.exit(leaving, 1, 20, true);
+    expect(leaving.scaleY, lessThan(0.05));
+    expect(leaving.dy, lessThan(0), reason: 'centre rises to the top hinge');
+    final arriving = UnitPose();
+    fold.enter(arriving, 0, 20, true);
+    expect(arriving.dy, greaterThan(0), reason: 'centre sits at the bottom hinge');
+    final landed = UnitPose();
+    fold.enter(landed, 1, 20, true);
+    expect(landed.scaleY, 1);
+    expect(landed.dy, 0);
   });
 }

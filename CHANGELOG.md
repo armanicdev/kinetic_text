@@ -21,6 +21,12 @@
   snapped glyph y to whole pixels and re-rasterized the atlas at each scale,
   which made a slow `Float` or `Glint` step pixel by pixel. Settled text is
   still crisp vector text.
+- **Ten more effects.** Reveals `Bounce`, `Squeeze`, `Outline` (a stroke
+  sweeps round each letter from a stroked twin of the same paragraph, then
+  the fill rises), `Scramble`; loops `Wave`, `Pulse`, `Spotlight` (a
+  per-letter alpha mask in one ink pass, the unlit letters held at `rest`),
+  `Flicker`; morph styles `fold` (split-flap) and `wipe`.
+- `ShapedText.strokedTwin` — the same layout with a stroked ink, cached.
 - `UnitPose.scaleY` — a vertical squash effects can compose with `scale`.
 - `MorphStyle.exitEnd` / `enterStart` — where each leg of a morph runs; the
   band-clip hook (`clipToBand`) is removed.

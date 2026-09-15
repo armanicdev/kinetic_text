@@ -125,7 +125,8 @@ class ShapedText {
     required this.lines,
     required this.direction,
     required this.runRanges,
-  });
+    required TextPainter Function(InlineSpan span) relayout,
+  }) : _relayout = relayout;
 
   /// Shape [span] between [minWidth] and [maxWidth] and index its units.
   ///
@@ -151,17 +152,18 @@ class ShapedText {
     List<(int, int)> runRanges = const [],
   }) {
     debugShapeCount++;
-    final painter = TextPainter(
-      text: span,
-      textDirection: direction,
-      textScaler: scaler,
-      textAlign: align,
-      maxLines: maxLines,
-      ellipsis: ellipsis,
-      strutStyle: strut,
-      locale: locale,
-      textHeightBehavior: textHeightBehavior,
-    )..layout(minWidth: minWidth, maxWidth: maxWidth);
+    TextPainter relayout(InlineSpan s) => TextPainter(
+          text: s,
+          textDirection: direction,
+          textScaler: scaler,
+          textAlign: align,
+          maxLines: maxLines,
+          ellipsis: ellipsis,
+          strutStyle: strut,
+          locale: locale,
+          textHeightBehavior: textHeightBehavior,
+        )..layout(minWidth: minWidth, maxWidth: maxWidth);
+    final painter = relayout(span);
 
     final metrics = painter.computeLineMetrics();
     final lines = <LineBand>[];
@@ -192,11 +194,68 @@ class ShapedText {
       lines: List.unmodifiable(lines),
       direction: direction,
       runRanges: List.unmodifiable(runRanges),
+      relayout: relayout,
     );
   }
 
   /// The one laid-out painter every unit is re-drawn from.
   final TextPainter painter;
+
+  final TextPainter Function(InlineSpan span) _relayout;
+  TextPainter? _stroked;
+  (double, Color)? _strokeKey;
+
+  /// The same paragraph laid out again with every span's ink replaced by a
+  /// stroke of [width] in [color] — identical metrics, identical joins, so an
+  /// effect can draw a unit's OUTLINE by clipping to its cell. Built once per
+  /// (width, colour) and owned by this object.
+  TextPainter strokedTwin({required double width, required Color color}) {
+    final key = (width, color);
+    if (_strokeKey != key) {
+      _stroked?.dispose();
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = width
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round
+        ..color = color;
+      _stroked = _relayout(_strokeSpan(painter.text!, paint));
+      _strokeKey = key;
+    }
+    return _stroked!;
+  }
+
+  static InlineSpan _strokeSpan(InlineSpan span, Paint paint) {
+    if (span is! TextSpan) return span;
+    final style = span.style;
+    return TextSpan(
+      text: span.text,
+      children: span.children?.map((c) => _strokeSpan(c, paint)).toList(),
+      style: style == null ? TextStyle(foreground: paint) : _strokedStyle(style, paint),
+      locale: span.locale,
+    );
+  }
+
+  /// [s] with its colour swapped for [paint]. A style cannot carry both a
+  /// colour and a foreground, and `copyWith` cannot clear one, so rebuild.
+  static TextStyle _strokedStyle(TextStyle s, Paint paint) => TextStyle(
+        inherit: s.inherit,
+        foreground: paint,
+        fontSize: s.fontSize,
+        fontWeight: s.fontWeight,
+        fontStyle: s.fontStyle,
+        letterSpacing: s.letterSpacing,
+        wordSpacing: s.wordSpacing,
+        textBaseline: s.textBaseline,
+        height: s.height,
+        leadingDistribution: s.leadingDistribution,
+        locale: s.locale,
+        fontFeatures: s.fontFeatures,
+        fontVariations: s.fontVariations,
+        fontFamily: s.fontFamily,
+        fontFamilyFallback: s.fontFamilyFallback,
+        overflow: s.overflow,
+      );
 
   /// The plain text.
   final String text;
@@ -301,7 +360,11 @@ class ShapedText {
   }
 
   /// Free the native paragraph. The object must not be painted afterwards.
-  void dispose() => painter.dispose();
+  void dispose() {
+    painter.dispose();
+    _stroked?.dispose();
+    _stroked = null;
+  }
 
   // --- unit indexing ---------------------------------------------------------
 

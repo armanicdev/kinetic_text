@@ -80,9 +80,17 @@ TextMorph(title, style: headline, morph: MorphStyle.sheen(sheen: [accent]));
 | Reveal | `Glint` | Grow + fade in under a travelling sheen |
 | Reveal | `Blur` | Resolve out of a blur (word/line units) |
 | Reveal | `Typewriter` | Hard-cut, one unit at a time, optional blinking cursor |
+| Reveal | `Bounce` | Drop in from above, land with one soft overshoot and squash |
+| Reveal | `Squeeze` | Wide and flat, stretching upright as it lands (a stamp) |
+| Reveal | `Outline` | A stroke sweeps round each letter, then the fill rises inside it |
+| Reveal | `Scramble` | Random glyphs lock onto the real ones in order (the terminal) |
 | Loop | `Shimmer` | A light band sweeps in reading order, letters lift under it |
 | Loop | `Sparkle` | A few small glints twinkle on the glyphs |
 | Loop | `Float` | A tiny slow drift, each letter a beat behind |
+| Loop | `Wave` | A rounded ripple runs through the line |
+| Loop | `Pulse` | A slow glow breathes through the ink, no motion |
+| Loop | `Spotlight` | A light travels the line; letters snap up under it, the rest sit dim |
+| Loop | `Flicker` | One or two letters stutter dark and recover (a loose sign) |
 | Ink | `GradientInk` | Gradient fill on a span, `rainbow`, optional flow |
 | Ink | `Tint` | Flat recolour of a span, no relayout |
 | Decor | `Highlight` | A rounded marker sweeps in behind a span |
@@ -96,8 +104,9 @@ or a parent animation instead. Loops run on their own clock while mounted.
 
 `TextMorph` diffs the two texts by unit: the shared prefix and suffix stay
 (gliding to their new place when the width changes), the differing middle
-leaves and arrives in the chosen style — `sheen`, `slide`, `roll` or
-`crossfade` — and the box's width eases between the two.
+leaves and arrives in the chosen style — `sheen`, `slide`, `roll`, `fold`
+(split-flap), `wipe` or `crossfade` — and the box's width eases between the
+two.
 
 `roll` turns the changed letters over a drum: the old glyph curves away
 (foreshortening and dimming as it leaves the drum's window), the new one
@@ -154,6 +163,11 @@ decor painters behind or over the glyphs.
   blurred one costs a small layer. Staggers keep the moving set small.
 - `Blur` on every letter of a paragraph is a layer per letter — use word or
   line units.
+- `Spotlight` and `Pulse` are one ink pass per frame and no layer per
+  letter; `Flicker` poses only the letters that flicker.
+- `Outline` lays the paragraph out a second time with a stroked ink — once,
+  cached on the shaped text. `Scramble` sets its stand-in glyphs one at a
+  time, so keep it to Latin text and figures.
 - Horizontal travel suits word units; letters have no slack to slide.
 
 ## Names

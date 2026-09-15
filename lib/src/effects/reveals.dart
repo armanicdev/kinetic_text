@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/widgets.dart' show StringCharacters;
 
 import '../easing.dart';
 import '../effect.dart';
@@ -286,4 +287,280 @@ class Typewriter extends TextEffect {
 
   @override
   int get hashCode => Object.hash(cursor, cursorWidth, blink, holdCursor, order);
+}
+
+/// Letters drop in from above and land with one soft overshoot — the settle
+/// dips a hair below the line and squashes, then stands. Playful where [Rise]
+/// is quiet; keep it for a headline, not a list.
+class Bounce extends StaggeredEffect {
+  /// Fall [distance] pixels; squash by [squash] at the landing.
+  const Bounce({
+    this.distance = 18,
+    this.squash = 0.1,
+    super.stagger = 0.5,
+    super.order,
+    super.curve = KineticEase.overshoot,
+  });
+
+  /// Drop height, logical pixels.
+  final double distance;
+
+  /// Vertical squash at the deepest point of the landing (0.1 = 10%).
+  final double squash;
+
+  @override
+  void poseUnit(TextFrame frame, UnitBox unit, UnitPose pose, double local,
+      double eased, int k, int n) {
+    if (local >= 1) return;
+    // The overshooting ease carries the letter a little past its line (dy >
+    // 0) before it comes to rest — that dip is the landing.
+    pose.dy += -distance * (1 - eased);
+    final over = (eased - 1).clamp(0.0, 0.1) / 0.1;
+    pose.scaleY *= 1 - squash * over;
+    pose.opacity *= (local * 3).clamp(0.0, 1.0);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Bounce &&
+      other.distance == distance &&
+      other.squash == squash &&
+      sameStagger(other);
+
+  @override
+  int get hashCode => Object.hash(distance, squash, staggerHash);
+}
+
+/// Letters start wide and flat and stretch upright as they land — a stamp
+/// pressed into the line. Uses the vertical squash, so the glyph's width is
+/// barely disturbed and neighbours are never crossed.
+class Squeeze extends StaggeredEffect {
+  /// Start at [width] × [height] of the resting glyph.
+  const Squeeze({
+    this.width = 1.12,
+    this.height = 0.35,
+    super.stagger = 0.5,
+    super.order,
+    super.curve = KineticEase.arrive,
+  });
+
+  /// Starting horizontal scale.
+  final double width;
+
+  /// Starting vertical scale.
+  final double height;
+
+  @override
+  void poseUnit(TextFrame frame, UnitBox unit, UnitPose pose, double local,
+      double eased, int k, int n) {
+    if (local >= 1) return;
+    final sx = lerp(width, 1, eased);
+    final sy = lerp(height, 1, eased);
+    pose.scale *= sx;
+    pose.scaleY *= sy / sx;
+    pose.opacity *= (local * 2.5).clamp(0.0, 1.0);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Squeeze &&
+      other.width == width &&
+      other.height == height &&
+      sameStagger(other);
+
+  @override
+  int get hashCode => Object.hash(width, height, staggerHash);
+}
+
+/// A stroke sweeps around each letter's outline like a clock hand, then the
+/// fill rises inside it and the stroke lets go. The outline is the SAME
+/// paragraph laid out again with a stroked ink, so every join and ligature
+/// is traced exactly as it is set.
+class Outline extends StaggeredEffect {
+  /// Trace in [color] with a stroke [width] pixels wide.
+  const Outline({
+    required this.color,
+    this.width = 1.2,
+    super.stagger = 0.5,
+    super.order,
+    super.curve = KineticEase.sweep,
+  });
+
+  /// Stroke colour.
+  final Color color;
+
+  /// Stroke width, logical pixels.
+  final double width;
+
+  static const double _sweepEnd = 0.6;
+  static const double _fillStart = 0.5;
+  static const double _strokeFade = 0.7;
+
+  @override
+  void poseUnit(TextFrame frame, UnitBox unit, UnitPose pose, double local,
+      double eased, int k, int n) {}
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    final n = slice.length;
+    if (n == 0) return;
+    final traced = <(int, double, double)>[]; // unit, sweep 0..1, stroke alpha
+    for (var k = 0; k < n; k++) {
+      final unit = slice.units[k];
+      final local = staggered(frame.progress, slice.rank(k, order), n, stagger);
+      if (local >= 1) continue;
+      final fill = ((local - _fillStart) / (1 - _fillStart)).clamp(0.0, 1.0);
+      frame.pose(unit).opacity *= KineticEase.arrive.transform(fill);
+      final sweep = curve.transform((local / _sweepEnd).clamp(0.0, 1.0));
+      final alpha = local < _strokeFade
+          ? 1.0
+          : 1 - (local - _strokeFade) / (1 - _strokeFade);
+      if (sweep > 0 && alpha > 0.01) traced.add((unit, sweep, alpha));
+    }
+    if (traced.isEmpty) return;
+    frame.over.add((canvas, f) {
+      final shaped = f.shaped;
+      final twin = shaped.strokedTwin(width: width, color: color);
+      for (final (i, sweep, alpha) in traced) {
+        final u = shaped.units[i];
+        final cell = shaped.cellOf(u);
+        canvas.save();
+        canvas.clipRect(cell);
+        if (sweep < 1) {
+          final c = u.rect.center;
+          final r = cell.longestSide;
+          final wedge = Path()
+            ..moveTo(c.dx, c.dy)
+            ..arcTo(Rect.fromCircle(center: c, radius: r), -math.pi / 2,
+                math.pi * 2 * sweep, false)
+            ..close();
+          canvas.clipPath(wedge);
+        }
+        if (alpha < 1) {
+          canvas.saveLayer(cell, Paint()..color = Color.fromRGBO(0, 0, 0, alpha));
+        }
+        twin.paint(canvas, Offset.zero);
+        if (alpha < 1) canvas.restore();
+        canvas.restore();
+      }
+    });
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Outline &&
+      other.color == color &&
+      other.width == width &&
+      sameStagger(other);
+
+  @override
+  int get hashCode => Object.hash(color, width, staggerHash);
+}
+
+/// Every letter shows a run of random glyphs, then locks onto the real one,
+/// in order — the terminal reveal. A stand-in glyph is set in the unit's own
+/// style and sits on its baseline, centred in its cell.
+///
+/// Stand-ins are laid out one glyph at a time, so this is for Latin text and
+/// figures; a cursive script would lose its joins while scrambling.
+class Scramble extends TextEffect {
+  /// Cycle through [glyphs], changing [steps] times over the run, locking in
+  /// [order] across the first [stagger] of it.
+  const Scramble({
+    this.glyphs = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+    this.steps = 24,
+    this.stagger = 0.7,
+    this.order = StaggerOrder.reading,
+    this.seed = 3,
+  });
+
+  /// The pool of stand-in glyphs.
+  final String glyphs;
+
+  /// How many times a scrambling letter changes across the whole run.
+  final int steps;
+
+  /// How much of the run is spent locking letters, `0..0.95`.
+  final double stagger;
+
+  /// The order letters lock in.
+  final StaggerOrder order;
+
+  /// Seed for the glyph picks.
+  final int seed;
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    final n = slice.length;
+    if (n == 0 || glyphs.isEmpty) return;
+    final tick = (frame.progress.clamp(0.0, 1.0) * steps).floor();
+    final pool = glyphs.characters.toList();
+    final live = <(int, String)>[];
+    for (var k = 0; k < n; k++) {
+      final unit = slice.units[k];
+      final local = staggered(frame.progress, slice.rank(k, order), n, stagger);
+      if (local >= 1) continue;
+      frame.pose(unit).opacity *= 0;
+      final pick = (hash01(k * 31 + tick, seed) * pool.length).floor();
+      live.add((unit, pool[pick.clamp(0, pool.length - 1)]));
+    }
+    if (live.isEmpty) return;
+    frame.over.add((canvas, f) {
+      final shaped = f.shaped;
+      final root = shaped.painter.text!;
+      for (final (i, glyph) in live) {
+        final u = shaped.units[i];
+        final style = _styleAt(root, u.start);
+        final tp = _standIn(style, shaped.painter.textScaler, glyph);
+        final line = shaped.lineOf(u);
+        final x = u.rect.center.dx - tp.width / 2;
+        final y = line.baseline -
+            tp.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+        canvas.save();
+        canvas.clipRect(shaped.cellOf(u));
+        tp.paint(canvas, Offset(x, y));
+        canvas.restore();
+      }
+    });
+  }
+
+  static TextStyle? _styleAt(InlineSpan root, int offset) {
+    final base = root.style;
+    final span = root.getSpanForPosition(TextPosition(offset: offset));
+    if (span == null || identical(span, root)) return base;
+    return base == null ? span.style : base.merge(span.style);
+  }
+
+  // Stand-in painters, one per (style, scale, glyph). Bounded: the whole
+  // cache is dropped when it grows past a few hundred entries.
+  static final Map<(TextStyle?, TextScaler, String), TextPainter> _standIns = {};
+
+  static TextPainter _standIn(TextStyle? style, TextScaler scaler, String glyph) {
+    if (_standIns.length > 384) {
+      for (final p in _standIns.values) {
+        p.dispose();
+      }
+      _standIns.clear();
+    }
+    return _standIns.putIfAbsent(
+      (style, scaler, glyph),
+      () => TextPainter(
+        text: TextSpan(text: glyph, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+      )..layout(),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Scramble &&
+      other.glyphs == glyphs &&
+      other.steps == steps &&
+      other.stagger == stagger &&
+      other.order == order &&
+      other.seed == seed;
+
+  @override
+  int get hashCode => Object.hash(glyphs, steps, stagger, order, seed);
 }

@@ -16,6 +16,7 @@ Widget host(Widget child, {bool reduce = false, TextDirection dir = TextDirectio
 
 void main() {
   _tickerTests();
+  _newEffectTests();
   testWidgets('a reveal plays to the end and reports it', (tester) async {
     var ended = 0;
     await tester.pumpWidget(host(KineticText(
@@ -113,6 +114,8 @@ void main() {
       MorphStyle.slide(),
       MorphStyle.roll(),
       MorphStyle.crossfade(),
+      MorphStyle.fold(),
+      MorphStyle.wipe(),
     ]) {
       Widget build(String t) => host(TextMorph(t, morph: style, duration: const Duration(milliseconds: 200)));
       await tester.pumpWidget(build('12,000'));
@@ -296,5 +299,60 @@ void _tickerTests() {
     ));
     await tester.pump();
     expect(tester.binding.transientCallbackCount, 0, reason: 'reduced motion: snapped');
+  });
+}
+
+void _newEffectTests() {
+  testWidgets('the second ten: every reveal plays and every loop ticks',
+      (tester) async {
+    const accent = Color(0xFF3366FF);
+    for (final effect in const <TextEffect>[
+      Bounce(),
+      Squeeze(),
+      Outline(color: accent),
+      Scramble(),
+    ]) {
+      await tester.pumpWidget(host(KineticText(
+        'Autumn Sale 2026',
+        effects: [effect],
+        duration: const Duration(milliseconds: 300),
+      )));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 60));
+        expect(tester.takeException(), isNull, reason: '$effect');
+      }
+      expect(tester.binding.transientCallbackCount, 0, reason: '$effect is a one-shot');
+    }
+    for (final effect in const <TextEffect>[
+      Wave(),
+      Pulse(color: accent),
+      Spotlight(color: accent),
+      Flicker(),
+    ]) {
+      await tester.pumpWidget(host(KineticText('Live now', effects: [effect])));
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(tester.binding.transientCallbackCount, greaterThan(0), reason: '$effect loops');
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 330));
+        expect(tester.takeException(), isNull, reason: '$effect');
+      }
+      await tester.pumpWidget(host(const SizedBox()));
+      expect(tester.binding.transientCallbackCount, 0, reason: '$effect released its clock');
+    }
+  });
+
+  testWidgets('a stroked twin lays out on the same metrics and is disposed',
+      (tester) async {
+    final shaped = ShapedText.shape(
+      span: const TextSpan(text: 'Verified', style: TextStyle(fontSize: 20, color: Color(0xFF000000))),
+      text: 'Verified',
+      direction: TextDirection.ltr,
+    );
+    final twin = shaped.strokedTwin(width: 1.5, color: const Color(0xFFFF0000));
+    expect(twin.width, shaped.width);
+    expect(twin.height, shaped.height);
+    expect(identical(twin, shaped.strokedTwin(width: 1.5, color: const Color(0xFFFF0000))), isTrue,
+        reason: 'cached per width and colour');
+    shaped.dispose();
   });
 }
