@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import 'drum.dart';
 import 'easing.dart';
 import 'effect.dart';
 import 'frame.dart';
@@ -23,6 +24,8 @@ abstract class MorphStyle {
     this.order = StaggerOrder.reading,
     this.exitCurve = KineticEase.arrive,
     this.enterCurve = KineticEase.arrive,
+    this.exitEnd = 0.5,
+    this.enterStart = 0.45,
   });
 
   /// Dissolve out under a glint, draw in under a glint — the title morph.
@@ -40,10 +43,10 @@ abstract class MorphStyle {
     double stagger,
   }) = SlideMorph;
 
-  /// Digits roll like an odometer — up when the number grew, down when it
-  /// shrank, the last digit first — clipped to the line so they slide in
-  /// through its edge.
-  const factory MorphStyle.roll({double travel, double stagger}) = RollMorph;
+  /// Letters turn over a drum like an odometer — up when the number grew,
+  /// down when it shrank. The same drum as [TickerText]: a glyph curves away,
+  /// foreshortens and is gone past the window; nothing is clipped.
+  const factory MorphStyle.roll({double stagger}) = RollMorph;
 
   /// A plain per-letter cross-fade.
   const factory MorphStyle.crossfade() = CrossfadeMorph;
@@ -60,8 +63,13 @@ abstract class MorphStyle {
   /// The ease of an arriving unit.
   final Curve enterCurve;
 
-  /// Clip moving units to their resting line band (the odometer look).
-  bool get clipToBand => false;
+  /// Where in the run (0..1) the exit leg ends. With [enterStart] a little
+  /// before it the hand-over reads as one motion; 1.0 with [enterStart] 0
+  /// runs both legs on one clock (a roll).
+  final double exitEnd;
+
+  /// Where in the run (0..1) the entrance leg starts.
+  final double enterStart;
 
   /// Read the travel direction from the numbers in the two texts.
   bool get numeric => false;
@@ -83,11 +91,14 @@ abstract class MorphStyle {
       other.stagger == stagger &&
       other.order == order &&
       other.exitCurve == exitCurve &&
-      other.enterCurve == enterCurve;
+      other.enterCurve == enterCurve &&
+      other.exitEnd == exitEnd &&
+      other.enterStart == enterStart;
 
   /// The base fields' contribution to `hashCode`.
   @protected
-  int get baseHash => Object.hash(stagger, order, exitCurve, enterCurve);
+  int get baseHash =>
+      Object.hash(stagger, order, exitCurve, enterCurve, exitEnd, enterStart);
 }
 
 /// Dissolve out and draw in under a travelling glint. See [MorphStyle.sheen].
@@ -191,41 +202,45 @@ class SlideMorph extends MorphStyle {
 
 /// The odometer. See [MorphStyle.roll].
 class RollMorph extends MorphStyle {
-  /// Roll [travel] line heights.
-  const RollMorph({this.travel = 0.75, super.stagger = 0.35})
+  /// Every changed letter turns at once (stagger 0), on the exponential
+  /// chase a ticker digit makes; exit and entrance share one clock, so the
+  /// old glyph rolls off exactly as the new one rolls in.
+  const RollMorph({super.stagger = 0})
       : super(
           order: StaggerOrder.reverse,
-          exitCurve: KineticEase.sweep,
-          enterCurve: KineticEase.sweep,
+          exitCurve: KineticEase.chase,
+          enterCurve: KineticEase.chase,
+          exitEnd: 1,
+          enterStart: 0,
         );
-
-  /// Travel as a fraction of the line height.
-  final double travel;
-
-  @override
-  bool get clipToBand => true;
 
   @override
   bool get numeric => true;
 
+  /// The leaving glyph turns from the window to one drum step away — up when
+  /// the value grew (it exits over the top), down when it shrank.
   @override
   void exit(UnitPose pose, double e, double lineHeight, bool up) {
-    pose.dy += (up ? -1 : 1) * travel * lineHeight * e;
-    pose.opacity *= 1 - e * 0.5;
+    final theta = (up ? -1 : 1) * Drum.stepAngle * e;
+    pose.dy += Drum.dy(theta, lineHeight);
+    pose.scaleY *= Drum.scaleY(theta);
+    pose.opacity *= Drum.alpha(theta);
   }
 
+  /// The arriving glyph turns in from the opposite step into the window.
   @override
   void enter(UnitPose pose, double e, double lineHeight, bool up) {
-    pose.dy += (up ? 1 : -1) * travel * lineHeight * (1 - e);
-    pose.opacity *= 0.5 + 0.5 * e;
+    final theta = (up ? 1 : -1) * Drum.stepAngle * (1 - e);
+    pose.dy += Drum.dy(theta, lineHeight);
+    pose.scaleY *= Drum.scaleY(theta);
+    pose.opacity *= Drum.alpha(theta);
   }
 
   @override
-  bool operator ==(Object other) =>
-      other is RollMorph && other.travel == travel && sameBase(other);
+  bool operator ==(Object other) => other is RollMorph && sameBase(other);
 
   @override
-  int get hashCode => Object.hash(travel, baseHash);
+  int get hashCode => baseHash;
 }
 
 /// A plain cross-fade. See [MorphStyle.crossfade].
@@ -353,27 +368,7 @@ class TextMorph extends StatefulWidget {
   /// The first number in [s], reading Western and Arabic-Indic digits, or
   /// null. Decides which way a [MorphStyle.roll] turns.
   @visibleForTesting
-  static double? numberIn(String s) {
-    final m = _digits.firstMatch(s);
-    if (m == null) return null;
-    final buf = StringBuffer();
-    for (final r in m.group(0)!.runes) {
-      if (r == 0x2C) continue; // thousands comma
-      if (r == 0x2E) {
-        buf.write('.');
-      } else if (r >= 0x30 && r <= 0x39) {
-        buf.writeCharCode(r);
-      } else if (r >= 0x660 && r <= 0x669) {
-        buf.writeCharCode(r - 0x660 + 0x30);
-      } else if (r >= 0x6F0 && r <= 0x6F9) {
-        buf.writeCharCode(r - 0x6F0 + 0x30);
-      }
-    }
-    return double.tryParse(buf.toString());
-  }
-
-  static final RegExp _digits =
-      RegExp(r'[0-9٠-٩۰-۹]+(?:[.,][0-9٠-٩۰-۹]+)*');
+  static double? numberIn(String s) => firstNumberIn(s);
 
   @override
   State<TextMorph> createState() => _TextMorphState();
@@ -563,11 +558,6 @@ class _MorphKey {
       Object.hash(from, to, style, fromStyle, direction, scaler, unit, pin);
 }
 
-/// The exit leg owns the first half, the entrance the back half, overlapping
-/// a little so the hand-over reads as one motion.
-const double _exitEnd = 0.5;
-const double _enterStart = 0.45;
-
 class _MorphPainter extends CustomPainter {
   _MorphPainter({
     required this.from,
@@ -620,8 +610,8 @@ class _MorphPainter extends CustomPainter {
       return;
     }
     final fromOrigin = _origin(from, size);
-    final outP = (p / _exitEnd).clamp(0.0, 1.0);
-    final inP = ((p - _enterStart) / (1 - _enterStart)).clamp(0.0, 1.0);
+    final outP = (p / style.exitEnd).clamp(0.0, 1.0);
+    final inP = ((p - style.enterStart) / (1 - style.enterStart)).clamp(0.0, 1.0);
     final settle = KineticEase.arrive.transform(p);
     final lineH = to.lines.isEmpty ? to.height : to.lines.first.height;
 
@@ -680,16 +670,8 @@ class _MorphPainter extends CustomPainter {
       }
     }
 
-    if (style.clipToBand) {
-      // Odometer: every moving letter slides through its own line edge.
-      canvas.save();
-      final band = Rect.fromLTRB(-size.width, toOrigin.dy, size.width * 2,
-          toOrigin.dy + to.height);
-      canvas.clipRect(band);
-    }
     if (nOut > 0) paintGlyphs(canvas, fromFrame, origin: fromOrigin);
     paintGlyphs(canvas, toFrame, origin: toOrigin);
-    if (style.clipToBand) canvas.restore();
   }
 
   @override

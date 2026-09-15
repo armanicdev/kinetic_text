@@ -3,7 +3,8 @@
 **Kinetic typography for Flutter** — per-letter, per-word and per-line text
 motion from ONE shaped paragraph: staggered reveals, sheen and shimmer sweeps,
 gradient and rainbow ink on any span, sparkle, marker highlight, draw-on
-underline, typewriter, and a text morph that rewrites a label in place.
+underline, typewriter, a text morph that rewrites a label in place, and a
+ticker whose digits turn like an odometer.
 
 - 🪶 **Zero dependencies.** Nothing beyond the Flutter SDK. No shaders to
   ship, no Rive, no Lottie.
@@ -31,7 +32,7 @@ underline, typewriter, and a text morph that rewrites a label in place.
 
 ```yaml
 dependencies:
-  kinetic_text: ^0.1.0
+  kinetic_text: ^0.2.0
 ```
 
 ```dart
@@ -60,7 +61,11 @@ KineticText.rich([
 // A button label that shimmers while a payment clears.
 KineticText('Pay now', style: label, effects: const [Shimmer()]);
 
-// A value that rewrites itself — digits roll like an odometer.
+// A figure whose digits turn like an odometer — retarget it mid-roll and
+// every wheel just redirects.
+TickerText(formatted, style: figure);
+
+// A value that rewrites itself — the changed letters roll on the same drum.
 TextMorph('$amount', style: figure, morph: const MorphStyle.roll());
 
 // A title that dissolves into the next one under a sheen.
@@ -91,9 +96,34 @@ or a parent animation instead. Loops run on their own clock while mounted.
 
 `TextMorph` diffs the two texts by unit: the shared prefix and suffix stay
 (gliding to their new place when the width changes), the differing middle
-leaves and arrives in the chosen style — `sheen`, `slide`, `roll`
-(numeric-aware odometer) or `crossfade` — and the box's width eases between
-the two.
+leaves and arrives in the chosen style — `sheen`, `slide`, `roll` or
+`crossfade` — and the box's width eases between the two.
+
+`roll` turns the changed letters over a drum: the old glyph curves away
+(foreshortening and dimming as it leaves the drum's window), the new one
+curves in from the other side on the same clock, up when the number in the
+text grew and down when it shrank. Nothing is clipped, so no sliver of the
+leaving glyph is ever left behind. Because it works on the shaped paragraph,
+it keeps cursive scripts joined.
+
+## Ticker
+
+`TickerText` is the odometer proper — the SwiftUI `numericText` feel. Each
+character sits in a slot keyed from the right (or `TickerAnchor.left` for a
+label) and owns a **continuous wheel** that chases its target every frame,
+not a 0→1 timeline that restarts on each change. Set a new value mid-roll
+and every wheel redirects from where it is; a digit that has to go from 2 to
+7 passes 3, 4, 5 and 6 on the way, the shorter way round the 0–9 ring. The
+width eases as characters come and go; new slots fade in, dropped slots fade
+out. Pass a formatted string and a tabular-figure style:
+
+```dart
+TickerText('1,250,000', style: figure.copyWith(fontFeatures: const [FontFeature.tabularFigures()]));
+```
+
+Characters are laid out one per slot, so use it for figures and Latin
+labels; for cursive scripts reach for `TextMorph` with `MorphStyle.roll`,
+which turns the same drum from one shaped paragraph.
 
 ## Your own effect
 

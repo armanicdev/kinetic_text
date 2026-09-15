@@ -15,6 +15,7 @@ Widget host(Widget child, {bool reduce = false, TextDirection dir = TextDirectio
     );
 
 void main() {
+  _tickerTests();
   testWidgets('a reveal plays to the end and reports it', (tester) async {
     var ended = 0;
     await tester.pumpWidget(host(KineticText(
@@ -237,5 +238,63 @@ void main() {
       expect(tester.takeException(), isNull);
     }
     await tester.pumpWidget(host(const SizedBox()));
+  });
+}
+
+void _tickerTests() {
+  testWidgets('a ticker turns, settles and lets go of its clock', (tester) async {
+    await tester.pumpWidget(host(const TickerText('1,999')));
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, 0, reason: 'at rest: no clock');
+    final rest = tester.getSize(find.byType(TickerText));
+    expect(rest.width, greaterThan(0));
+
+    await tester.pumpWidget(host(const TickerText('12,000')));
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, greaterThan(0), reason: 'rolling');
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.takeException(), isNull);
+    final mid = tester.getSize(find.byType(TickerText));
+    expect(mid.width, greaterThan(rest.width), reason: 'the field is widening');
+
+    await tester.pumpAndSettle();
+    expect(tester.binding.transientCallbackCount, 0, reason: 'settled: clock released');
+    expect(tester.getSemantics(find.byType(TickerText)).label, '12,000');
+
+    await tester.pumpWidget(host(const TickerText('Sold out', anchor: TickerAnchor.left)));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a ticker sits on the text baseline and snaps under reduced motion',
+      (tester) async {
+    await tester.pumpWidget(host(
+      const Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [TickerText('250'), Text('kg')],
+      ),
+      reduce: true,
+    ));
+    await tester.pump();
+    final ticker = tester.getRect(find.byType(TickerText));
+    final label = tester.getRect(find.text('kg'));
+    expect(ticker.bottom, moreOrLessEquals(label.bottom, epsilon: 0.5),
+        reason: 'same style, same line: the baselines agree');
+
+    await tester.pumpWidget(host(
+      const Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [TickerText('1,000'), Text('kg')],
+      ),
+      reduce: true,
+    ));
+    await tester.pump();
+    expect(tester.binding.transientCallbackCount, 0, reason: 'reduced motion: snapped');
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/animation.dart';
@@ -11,21 +12,19 @@ import 'shaped_text.dart';
 /// How far a pose can push ink outside its resting cell — what a layer must
 /// cover so nothing is hard-cut.
 double _reachOf(UnitPose pose, Rect cell) =>
-    (pose.scale - 1).abs() * cell.longestSide + pose.blur * 3;
+    math.max((pose.scale - 1).abs(), (pose.scale * pose.scaleY - 1).abs()) *
+        cell.longestSide +
+    pose.blur * 3;
 
 /// Paints one unit of a [ShapedText] in a [UnitPose]: the whole painter is
 /// drawn under a transform about the unit's centre and clipped to the unit's
 /// cell — so a scaled letter grows into its side-bearings, a risen letter
 /// carries its clip with it, and the rest of the text is never touched.
-///
-/// [clipToBand] keeps the clip at the RESTING cell instead (the odometer
-/// look: a rolling digit slides out through the line's edge).
 void paintUnit(
   Canvas canvas,
   ShapedText shaped,
   UnitBox unit,
   UnitPose pose, {
-  bool clipToBand = false,
   Offset origin = Offset.zero,
 }) {
   final cell = shaped.cellOf(unit);
@@ -34,7 +33,6 @@ void paintUnit(
   final cy = unit.rect.center.dy;
   canvas.save();
   canvas.translate(origin.dx, origin.dy);
-  if (clipToBand) canvas.clipRect(cell);
   if (needsLayer) {
     final bounds =
         cell.shift(Offset(pose.dx, pose.dy)).inflate(_reachOf(pose, cell));
@@ -50,12 +48,12 @@ void paintUnit(
     canvas.saveLayer(bounds, paint);
   }
   canvas.translate(pose.dx, pose.dy);
-  if (pose.scale != 1) {
+  if (pose.scale != 1 || pose.scaleY != 1) {
     canvas.translate(cx, cy);
-    canvas.scale(pose.scale);
+    canvas.scale(pose.scale, pose.scale * pose.scaleY);
     canvas.translate(-cx, -cy);
   }
-  if (!clipToBand) canvas.clipRect(cell);
+  canvas.clipRect(cell);
   shaped.painter.paint(canvas, Offset.zero);
   if (needsLayer) canvas.restore();
   canvas.restore();
@@ -138,9 +136,9 @@ void paintInk(
     final cy = u.rect.center.dy;
     canvas.save();
     canvas.translate(origin.dx + pose.dx, origin.dy + pose.dy);
-    if (pose.scale != 1) {
+    if (pose.scale != 1 || pose.scaleY != 1) {
       canvas.translate(cx, cy);
-      canvas.scale(pose.scale);
+      canvas.scale(pose.scale, pose.scale * pose.scaleY);
       canvas.translate(-cx, -cy);
     }
     canvas.clipRect(cell);

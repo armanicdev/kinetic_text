@@ -9,6 +9,10 @@ class UnitPose {
   double dx = 0;
   double dy = 0;
   double scale = 1;
+
+  /// A vertical-only squash on top of [scale] — a glyph turning over a drum
+  /// foreshortens without getting narrower.
+  double scaleY = 1;
   double opacity = 1;
 
   /// Gaussian blur sigma in logical pixels. Costs a layer per unit while
@@ -17,12 +21,13 @@ class UnitPose {
   double blur = 0;
 
   bool get isIdentity =>
-      dx == 0 && dy == 0 && scale == 1 && opacity == 1 && blur == 0;
+      dx == 0 && dy == 0 && scale == 1 && scaleY == 1 && opacity == 1 && blur == 0;
 
   void reset() {
     dx = 0;
     dy = 0;
     scale = 1;
+    scaleY = 1;
     opacity = 1;
     blur = 0;
   }

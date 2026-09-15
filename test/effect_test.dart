@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kinetic_text/kinetic_text.dart';
 
 void main() {
+  _rollTests();
   test('staggered: first starts at once, last starts at the stagger', () {
     expect(staggered(0, 0, 5, 0.5), 0);
     expect(staggered(0.5, 0, 5, 0.5), 1);
@@ -101,7 +102,7 @@ void main() {
     expect(Tint(accent), Tint(accent));
     expect(TextRun('a', effects: [Tint(accent)]), TextRun('a', effects: [Tint(accent)]));
     expect(MorphStyle.sheen(sheen: [accent]), MorphStyle.sheen(sheen: [accent]));
-    expect(const MorphStyle.roll(), isNot(const MorphStyle.roll(travel: 1)));
+    expect(const MorphStyle.roll(), isNot(const MorphStyle.roll(stagger: 0.3)));
     expect(const MorphStyle.crossfade(), const MorphStyle.crossfade());
     expect(const MorphStyle.slide(), const MorphStyle.slide());
     expect({Rise(distance: 10), const Rise(distance: 10)}.length, 1, reason: 'hashCode agrees');
@@ -113,5 +114,30 @@ void main() {
     expect(TextMorph.numberIn('٤٥٠ د.ع'), 450);
     expect(TextMorph.numberIn('۱۲,۵۰۰'), 12500);
     expect(TextMorph.numberIn('no digits'), isNull);
+  });
+}
+
+void _rollTests() {
+  test('a rolling glyph is fully off the drum at the end of its exit', () {
+    const roll = MorphStyle.roll() as RollMorph;
+    final pose = UnitPose();
+    roll.exit(pose, 1, 20, true);
+    expect(pose.opacity, 0, reason: 'past the drum window: no ghost');
+    expect(pose.dy, lessThan(0), reason: 'up = exits over the top');
+    expect(pose.scaleY, lessThan(1), reason: 'foreshortened on the curve');
+    final arriving = UnitPose();
+    roll.enter(arriving, 0, 20, true);
+    expect(arriving.opacity, 0, reason: 'the newcomer starts off the drum');
+    expect(arriving.dy, greaterThan(0), reason: 'up = arrives from below');
+    final landed = UnitPose();
+    roll.enter(landed, 1, 20, true);
+    expect(landed.isIdentity, isTrue, reason: 'settles exactly in place');
+  });
+
+  test('chase eases hard out of the gate and lands at 1', () {
+    expect(KineticEase.chase.transform(0), 0);
+    expect(KineticEase.chase.transform(1), 1);
+    expect(KineticEase.chase.transform(0.25), greaterThan(0.6));
+    expect(KineticEase.chase.transform(0.5), lessThan(KineticEase.chase.transform(0.75)));
   });
 }

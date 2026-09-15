@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/animation.dart';
 
 /// The named easings every effect defaults to — so re-tuning the library's
@@ -17,4 +19,19 @@ abstract final class KineticEase {
 
   /// A cross-over: gone by half, arrived by the end — for a hand-over.
   static const Curve linear = Curves.linear;
+
+  /// The exponential approach a follower makes toward a moving target — fast
+  /// off the mark, asymptotic into place, never a hard stop. The roll's ease.
+  static const Curve chase = _Chase(4.5);
+}
+
+/// `(1 - e^(-k t)) / (1 - e^(-k))` — exponential smoothing folded into a
+/// 0..1 curve. [k] is how many time constants fit in the run.
+class _Chase extends Curve {
+  const _Chase(this.k);
+  final double k;
+
+  @override
+  double transformInternal(double t) =>
+      (1 - math.exp(-k * t)) / (1 - math.exp(-k));
 }
