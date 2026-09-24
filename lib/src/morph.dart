@@ -394,7 +394,7 @@ class TextMorph extends StatefulWidget {
     this.unit = TextUnit.grapheme,
     this.duration = const Duration(milliseconds: 360),
     this.widthCurve = KineticEase.arrive,
-    this.alignment = Alignment.center,
+    this.alignment = AlignmentDirectional.centerStart,
     this.textDirection,
     this.pinLineHeight = true,
     this.intro = false,
@@ -420,7 +420,12 @@ class TextMorph extends StatefulWidget {
   /// The ease the box width follows between the two texts.
   final Curve widthCurve;
 
-  /// Where each text sits inside the box while the width moves.
+  /// Where each text sits inside the box while the width moves. Start by
+  /// default: a label pinned to its leading edge, as text lays out anywhere
+  /// else, so a vertical morph (slide, roll, fold) moves only up and down
+  /// while the box eases to the new width. Centred, each text would ride the
+  /// box's changing middle and drift sideways as it rose; pass
+  /// [Alignment.center] only for a label that is itself centred.
   final AlignmentGeometry alignment;
 
   /// Null reads the ambient [Directionality].

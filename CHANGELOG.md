@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- **`TextMorph` holds its leading edge.** `alignment` now defaults to
+  `AlignmentDirectional.centerStart` (was `Alignment.center`). Centred, each
+  text rode the middle of a box whose width was easing between the two
+  values, so a word sliding up or down also drifted sideways; pinned to the
+  start it moves only on the morph's own axis, in LTR and RTL. Pass
+  `alignment: Alignment.center` to keep a centred label centred.
+
 ## 0.2.0
 
 - **New: `TickerText`** — an odometer figure. One continuous wheel per

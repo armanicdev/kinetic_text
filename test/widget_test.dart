@@ -132,6 +132,25 @@ void main() {
     }
   });
 
+  testWidgets('morph: a label holds its leading edge while the width moves',
+      (tester) async {
+    // Centred by default, a word sliding up drifted sideways as the box eased
+    // from one width to the other; the default is now the start edge, in
+    // either direction.
+    for (final dir in TextDirection.values) {
+      await tester.pumpWidget(host(const TextMorph('Madyas',
+        morph: MorphStyle.slide(), duration: Duration(milliseconds: 200)), dir: dir));
+      await tester.pumpWidget(host(const TextMorph('Bookings',
+        morph: MorphStyle.slide(), duration: Duration(milliseconds: 200)), dir: dir));
+      await tester.pump(const Duration(milliseconds: 80));
+      final paint = tester.widget<CustomPaint>(find.descendant(
+        of: find.byType(TextMorph), matching: find.byType(CustomPaint)));
+      final Alignment align = (paint.painter as dynamic).align;
+      expect(align.x, dir == TextDirection.ltr ? -1 : 1, reason: '$dir');
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+  });
+
   testWidgets('RTL text shapes and reveals', (tester) async {
     await tester.pumpWidget(host(
       const KineticText('وەسڵی کارەبا', effects: [Rise(), Shimmer()]),

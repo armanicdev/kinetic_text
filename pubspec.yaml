@@ -7,7 +7,7 @@ description: >-
   script (Arabic, Kurdish, ligatures, bidi) stays correctly joined, because the
   text is shaped once and the glyph clusters are re-drawn from that one layout.
   No shaders to ship, ZERO external dependencies.
-version: 0.2.0
+version: 0.3.0
 
 # Authored by Armanic Studio (https://pub.dev/publishers/armanic.studio).
 repository: https://github.com/armanicdev/kinetic_text
