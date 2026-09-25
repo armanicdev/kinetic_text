@@ -2,6 +2,12 @@
 
 ## 0.3.0
 
+- **New: `TextMorph.keepShared`.** True by default, as before: the letters the
+  two texts share at their start and end stay put. Set it false to exchange
+  every unit, so the old value leaves whole and the new one arrives whole; with
+  `unit: TextUnit.word` a value swaps word by word, no letter left standing
+  because it happened to match.
+
 - **`TextMorph` holds its leading edge.** `alignment` now defaults to
   `AlignmentDirectional.centerStart` (was `Alignment.center`). Centred, each
   text rode the middle of a box whose width was easing between the two

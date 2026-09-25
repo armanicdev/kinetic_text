@@ -380,6 +380,7 @@ class MorphDiff {
 /// A label that rewrites itself in place: when [text] changes, the letters the
 /// two values share stay (gliding to their new position if the width moved),
 /// and the letters that differ leave and arrive in the chosen [morph] style.
+/// With [keepShared] false every letter is exchanged.
 /// The box's width eases between the two widths underneath.
 ///
 /// Single-line. Interrupt-safe — a new [text] mid-flight re-points the morph
@@ -392,6 +393,7 @@ class TextMorph extends StatefulWidget {
     this.style,
     this.morph = const SheenMorph(),
     this.unit = TextUnit.grapheme,
+    this.keepShared = true,
     this.duration = const Duration(milliseconds: 360),
     this.widthCurve = KineticEase.arrive,
     this.alignment = AlignmentDirectional.centerStart,
@@ -413,6 +415,12 @@ class TextMorph extends StatefulWidget {
 
   /// The grain of the diff and the motion.
   final TextUnit unit;
+
+  /// Whether the units the two texts share at their start and end stay put.
+  /// False exchanges every unit, so the whole text leaves and the new one
+  /// arrives, even where a letter or a word is the same in both: "Erbil" to
+  /// "Basra" moves the `r` too.
+  final bool keepShared;
 
   /// Length of one exchange.
   final Duration duration;
@@ -529,7 +537,9 @@ class _TextMorphState extends State<TextMorph>
         );
     _fromShaped = shape(_from, key.fromStyle);
     _toShaped = shape(_to, key.style);
-    _diff = MorphDiff.between(_fromShaped!, _toShaped!);
+    _diff = key.keep
+        ? MorphDiff.between(_fromShaped!, _toShaped!)
+        : const MorphDiff(prefix: 0, suffix: 0);
     final a = TextMorph.numberIn(_from);
     final b = TextMorph.numberIn(_to);
     _up = a == null || b == null ? true : b >= a;
@@ -563,6 +573,7 @@ class _TextMorphState extends State<TextMorph>
       scaler: scaler,
       unit: widget.unit,
       pin: widget.pinLineHeight,
+      keep: widget.keepShared,
     );
     if (_toShaped == null || _key != key) _shape(key);
     final from = _fromShaped!;
@@ -613,6 +624,7 @@ class _MorphKey {
     required this.scaler,
     required this.unit,
     required this.pin,
+    required this.keep,
   });
   final String from, to;
   final TextStyle style, fromStyle;
@@ -620,6 +632,7 @@ class _MorphKey {
   final TextScaler scaler;
   final TextUnit unit;
   final bool pin;
+  final bool keep;
 
   @override
   bool operator ==(Object other) =>
@@ -631,11 +644,12 @@ class _MorphKey {
       other.direction == direction &&
       other.scaler == scaler &&
       other.unit == unit &&
-      other.pin == pin;
+      other.pin == pin &&
+      other.keep == keep;
 
   @override
   int get hashCode =>
-      Object.hash(from, to, style, fromStyle, direction, scaler, unit, pin);
+      Object.hash(from, to, style, fromStyle, direction, scaler, unit, pin, keep);
 }
 
 class _MorphPainter extends CustomPainter {

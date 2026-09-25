@@ -151,6 +151,24 @@ void main() {
     }
   });
 
+  testWidgets('morph: keepShared false exchanges every unit', (tester) async {
+    // "Erbil" and "Ercil" share "Er" and "il"; kept, those stay put. Off,
+    // nothing is shared and the whole word leaves and arrives.
+    for (final keep in [true, false]) {
+      Widget build(String t) => host(TextMorph(t, keepShared: keep,
+        morph: const MorphStyle.slide(), duration: const Duration(milliseconds: 200)));
+      await tester.pumpWidget(build('Erbil'));
+      await tester.pumpWidget(build('Ercil'));
+      await tester.pump(const Duration(milliseconds: 80));
+      final paint = tester.widget<CustomPaint>(find.descendant(
+        of: find.byType(TextMorph), matching: find.byType(CustomPaint)));
+      final MorphDiff diff = (paint.painter as dynamic).diff;
+      expect((diff.prefix, diff.suffix), keep ? (2, 2) : (0, 0), reason: 'keep $keep');
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('RTL text shapes and reveals', (tester) async {
     await tester.pumpWidget(host(
       const KineticText('وەسڵی کارەبا', effects: [Rise(), Shimmer()]),
