@@ -169,6 +169,34 @@ void main() {
     }
   });
 
+  testWidgets('morph: rich spans morph as one line in their own styles',
+      (tester) async {
+    InlineSpan line(String city, String code) => TextSpan(children: [
+      TextSpan(text: city),
+      TextSpan(text: ' · $code', style: const TextStyle(color: Color(0xFF888888))),
+    ]);
+    Widget build(String city, String code) => host(TextMorph.rich(line(city, code),
+      unit: TextUnit.word, keepShared: false,
+      morph: const MorphStyle.slide(), duration: const Duration(milliseconds: 200)));
+    await tester.pumpWidget(build('Erbil', 'EBL'));
+    expect(find.bySemanticsLabel('Erbil · EBL'), findsOneWidget);
+    await tester.pumpWidget(build('Istanbul', 'IST'));
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.takeException(), isNull);
+    final paint = tester.widget<CustomPaint>(find.descendant(
+      of: find.byType(TextMorph), matching: find.byType(CustomPaint)));
+    final MorphDiff diff = (paint.painter as dynamic).diff;
+    expect((diff.prefix, diff.suffix), (0, 0));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.bySemanticsLabel('Istanbul · IST'), findsOneWidget);
+    // The same words in a new colour restyle without an exchange.
+    await tester.pumpWidget(host(TextMorph.rich(const TextSpan(children: [
+      TextSpan(text: 'Istanbul'),
+      TextSpan(text: ' · IST', style: TextStyle(color: Color(0xFFFF0000))),
+    ]), unit: TextUnit.word, duration: const Duration(milliseconds: 200))));
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
   testWidgets('RTL text shapes and reveals', (tester) async {
     await tester.pumpWidget(host(
       const KineticText('وەسڵی کارەبا', effects: [Rise(), Shimmer()]),

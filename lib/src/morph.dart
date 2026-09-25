@@ -402,10 +402,33 @@ class TextMorph extends StatefulWidget {
     this.intro = false,
     this.reduceMotion,
     this.semanticsLabel,
-  });
+  }) : span = null;
 
-  /// The current value.
+  /// A morphing label showing [span]: one line in several styles, a name in
+  /// full ink and a code after it in a quieter one. Each unit keeps its own
+  /// span's style while it moves; the diff reads the plain text.
+  TextMorph.rich(
+    InlineSpan this.span, {
+    super.key,
+    this.style,
+    this.morph = const SheenMorph(),
+    this.unit = TextUnit.grapheme,
+    this.keepShared = true,
+    this.duration = const Duration(milliseconds: 360),
+    this.widthCurve = KineticEase.arrive,
+    this.alignment = AlignmentDirectional.centerStart,
+    this.textDirection,
+    this.pinLineHeight = true,
+    this.intro = false,
+    this.reduceMotion,
+    this.semanticsLabel,
+  }) : text = span.toPlainText(includeSemanticsLabels: false);
+
+  /// The current value, as plain text.
   final String text;
+
+  /// The styled value for [TextMorph.rich]; null for a plain [text].
+  final InlineSpan? span;
 
   /// Merged over the ambient [DefaultTextStyle].
   final TextStyle? style;
@@ -468,6 +491,8 @@ class _TextMorphState extends State<TextMorph>
   String _from = '';
   late String _to = widget.text;
   TextStyle? _fromStyle;
+  InlineSpan? _fromSpan;
+  late InlineSpan? _toSpan = widget.span;
 
   ShapedText? _fromShaped;
   ShapedText? _toShaped;
@@ -502,10 +527,16 @@ class _TextMorphState extends State<TextMorph>
   void didUpdateWidget(TextMorph old) {
     super.didUpdateWidget(old);
     _c.duration = widget.duration;
-    if (widget.text == _to) return;
+    if (widget.text == _to) {
+      // Same words, new styling: restyle in place, no exchange.
+      _toSpan = widget.span;
+      return;
+    }
     _from = _to;
     _fromStyle = old.style;
+    _fromSpan = _toSpan;
     _to = widget.text;
+    _toSpan = widget.span;
     if (_reduced) {
       _c.value = 1;
     } else {
@@ -524,8 +555,11 @@ class _TextMorphState extends State<TextMorph>
   void _shape(_MorphKey key) {
     _fromShaped?.dispose();
     _toShaped?.dispose();
-    ShapedText shape(String text, TextStyle style) => ShapedText.shape(
-          span: TextSpan(text: text, style: style),
+    ShapedText shape(String text, TextStyle style, InlineSpan? rich) =>
+        ShapedText.shape(
+          span: rich == null
+              ? TextSpan(text: text, style: style)
+              : TextSpan(style: style, children: [rich]),
           text: text,
           direction: key.direction,
           unit: widget.unit,
@@ -535,8 +569,8 @@ class _TextMorphState extends State<TextMorph>
               ? StrutStyle.fromTextStyle(style, forceStrutHeight: true)
               : null,
         );
-    _fromShaped = shape(_from, key.fromStyle);
-    _toShaped = shape(_to, key.style);
+    _fromShaped = shape(_from, key.fromStyle, key.fromSpan);
+    _toShaped = shape(_to, key.style, key.toSpan);
     _diff = key.keep
         ? MorphDiff.between(_fromShaped!, _toShaped!)
         : const MorphDiff(prefix: 0, suffix: 0);
@@ -554,13 +588,22 @@ class _TextMorphState extends State<TextMorph>
     final style = defaults.merge(widget.style);
     final label = widget.semanticsLabel ?? _to;
     if (_reduced) {
-      return Text(
-        _to,
-        style: style,
-        maxLines: 1,
-        textDirection: direction,
-        semanticsLabel: label,
-      );
+      final rich = _toSpan;
+      return rich == null
+          ? Text(
+              _to,
+              style: style,
+              maxLines: 1,
+              textDirection: direction,
+              semanticsLabel: label,
+            )
+          : Text.rich(
+              rich,
+              style: style,
+              maxLines: 1,
+              textDirection: direction,
+              semanticsLabel: label,
+            );
     }
     final scaler = MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling;
     final fromStyle = defaults.merge(_fromStyle ?? widget.style);
@@ -574,6 +617,8 @@ class _TextMorphState extends State<TextMorph>
       unit: widget.unit,
       pin: widget.pinLineHeight,
       keep: widget.keepShared,
+      fromSpan: _fromSpan,
+      toSpan: _toSpan,
     );
     if (_toShaped == null || _key != key) _shape(key);
     final from = _fromShaped!;
@@ -625,6 +670,8 @@ class _MorphKey {
     required this.unit,
     required this.pin,
     required this.keep,
+    this.fromSpan,
+    this.toSpan,
   });
   final String from, to;
   final TextStyle style, fromStyle;
@@ -633,6 +680,7 @@ class _MorphKey {
   final TextUnit unit;
   final bool pin;
   final bool keep;
+  final InlineSpan? fromSpan, toSpan;
 
   @override
   bool operator ==(Object other) =>
@@ -645,11 +693,14 @@ class _MorphKey {
       other.scaler == scaler &&
       other.unit == unit &&
       other.pin == pin &&
-      other.keep == keep;
+      other.keep == keep &&
+      other.fromSpan == fromSpan &&
+      other.toSpan == toSpan;
 
   @override
   int get hashCode =>
-      Object.hash(from, to, style, fromStyle, direction, scaler, unit, pin, keep);
+      Object.hash(from, to, style, fromStyle, direction, scaler, unit, pin, keep,
+          fromSpan, toSpan);
 }
 
 class _MorphPainter extends CustomPainter {

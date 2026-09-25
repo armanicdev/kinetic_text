@@ -7,6 +7,10 @@
   every unit, so the old value leaves whole and the new one arrives whole; with
   `unit: TextUnit.word` a value swaps word by word, no letter left standing
   because it happened to match.
+- **New: `TextMorph.rich`.** One line in several styles, a name in full ink
+  and a code after it in a quieter one, morphed as one: each unit keeps its
+  span's style while it moves, and the diff reads the plain text. A new style
+  on the same words restyles in place without an exchange.
 
 - **`TextMorph` holds its leading edge.** `alignment` now defaults to
   `AlignmentDirectional.centerStart` (was `Alignment.center`). Centred, each
