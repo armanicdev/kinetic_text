@@ -89,7 +89,9 @@ void main() {
 
   test('ڕ moves whole: its tail and mark come with it and nothing stays behind',
       () async {
-    final s = shapeKurdish();
+    // Large, so the tail's ink stands well clear of antialiasing on every
+    // engine version.
+    final s = shapeKurdish(size: 80);
     final reh = s.units.indexWhere((u) => s.text.substring(u.start, u.end) == 'ڕ');
     expect(reh, isNot(-1));
     final all = await render(s, (c) => s.painter.paint(c, Offset.zero));
