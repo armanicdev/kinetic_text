@@ -1,13 +1,8 @@
 name: kinetic_text
 description: >-
-  Kinetic typography for Flutter — per-letter, per-word and per-line text motion
-  from ONE shaped paragraph: staggered reveals, sheen and shimmer sweeps,
-  gradient and rainbow ink on any span, sparkle, marker highlight, draw-on
-  underline, typewriter, and a text morph that rewrites a label in place. Every
-  script (Arabic, Kurdish, ligatures, bidi) stays correctly joined, because the
-  text is shaped once and the glyph clusters are re-drawn from that one layout.
-  No shaders to ship, ZERO external dependencies.
-version: 0.3.0
+  Kinetic typography for Flutter: letter, word and line motion from one shaped
+  paragraph. Every letter moves whole; Arabic and Kurdish stay joined.
+version: 1.0.0
 
 # Authored by Armanic Studio (https://pub.dev/publishers/armanic.studio).
 repository: https://github.com/armanicdev/kinetic_text
@@ -16,7 +11,7 @@ topics:
   - text
   - animation
   - typography
-  - motion
+  - rtl
   - shimmer
 
 # The floor is what the code needs, not what the atelier runs: records and

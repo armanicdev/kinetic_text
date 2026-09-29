@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -50,9 +51,14 @@ enum RollDirection {
 /// come and go; entering slots fade in, leaving slots fade out.
 ///
 /// Characters are laid out one per slot, so this is for figures and Latin
-/// labels. For cursive scripts (Arabic, Kurdish) use [TextMorph] with
-/// [MorphStyle.roll], which turns the same drum from one shaped paragraph so
-/// the joins survive.
+/// labels. Western (0–9), Arabic-Indic (٠–٩) and Persian (۰–۹) digits each
+/// turn on their own ring. For cursive words (Arabic, Kurdish) use
+/// [TextMorph] with [MorphStyle.roll], which turns the same drum from one
+/// shaped paragraph so the joins survive.
+///
+/// A turning glyph is drawn at rest and resampled through a matrix filter, so
+/// it glides at any fraction of a pixel; settled glyphs are crisp vector
+/// text, and no glyph is ever clipped to its slot.
 ///
 /// Pass a pre-formatted string (`1,250,000`). Use a tabular figure style so
 /// digit slots stay equal width. Reports a text baseline, so it sits in a
@@ -99,8 +105,8 @@ class TickerText extends StatefulWidget {
 /// One character slot: its ring of glyphs, a continuous wheel position along
 /// that ring, and a presence alpha.
 class _Slot {
-  _Slot.digit(int d)
-      : ring = _digitRing,
+  _Slot.digit(int d, this.zero)
+      : ring = _ringOf(zero),
         isDigit = true,
         wheel = d.toDouble(),
         wheelTo = d.toDouble();
@@ -108,14 +114,24 @@ class _Slot {
   _Slot.glyph(String g)
       : ring = [g],
         isDigit = false,
+        zero = 0,
         wheel = 0,
         wheelTo = 0;
 
-  static const List<String> _digitRing =
-      ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  static final Map<int, List<String>> _rings = {};
+
+  /// The ten digits that start at code point [zero].
+  static List<String> _ringOf(int zero) => _rings.putIfAbsent(
+        zero,
+        () => List.unmodifiable(
+            [for (var d = 0; d < 10; d++) String.fromCharCode(zero + d)]),
+      );
 
   List<String> ring;
   final bool isDigit;
+
+  /// The code point of this slot's zero — which script's digits it turns.
+  final int zero;
   double wheel;
   double wheelTo;
   double alpha = 1;
@@ -226,14 +242,14 @@ class _TickerTextState extends State<TickerText>
       }
       final d = _digitOf(ch);
       if (slot == null) {
-        final s = d != null ? _Slot.digit(d) : _Slot.glyph(ch);
+        final s = d != null ? _Slot.digit(d.$1, d.$2) : _Slot.glyph(ch);
         s.alpha = animate ? 0 : 1;
         slots[q] = s;
         continue;
       }
       slot.alphaTo = 1;
-      if (d != null && slot.isDigit) {
-        slot.wheelTo = _nearest(slot.wheel, d);
+      if (d != null && slot.isDigit && slot.zero == d.$2) {
+        slot.wheelTo = _nearest(slot.wheel, d.$1);
       } else if (d == null && !slot.isDigit) {
         if (slot.target != ch) {
           // Extend the ring past the current target and turn one step.
@@ -253,8 +269,9 @@ class _TickerTextState extends State<TickerText>
           slot.wheelTo = next.toDouble();
         }
       } else {
-        // Digit ↔ non-digit: a fresh slot, cross-faded.
-        final s = d != null ? _Slot.digit(d) : _Slot.glyph(ch);
+        // Digit ↔ non-digit, or another script's digits: a fresh slot,
+        // cross-faded.
+        final s = d != null ? _Slot.digit(d.$1, d.$2) : _Slot.glyph(ch);
         s.alpha = animate ? 0 : 1;
         slots[q] = s;
       }
@@ -335,10 +352,14 @@ class _TickerTextState extends State<TickerText>
     _model.repaint.tick();
   }
 
-  static int? _digitOf(String ch) {
+  /// The value and the zero code point of a digit [ch], or null.
+  static (int, int)? _digitOf(String ch) {
     if (ch.length != 1) return null;
     final c = ch.codeUnitAt(0);
-    return (c >= 0x30 && c <= 0x39) ? c - 0x30 : null;
+    for (final zero in _TickerModel.zeros) {
+      if (c >= zero && c <= zero + 9) return (c - zero, zero);
+    }
+    return null;
   }
 
   /// Slot index → character, keyed from the anchor edge.
@@ -376,8 +397,15 @@ class _TickerModel {
   double widthTo = 0;
   double height = 0;
   double baseline = 0;
-  double digitWidth = 0;
   TickerAnchor anchor = TickerAnchor.right;
+
+  /// The zeros of the digit scripts that turn on a ring: Western,
+  /// Arabic-Indic, Extended Arabic-Indic (Persian, Urdu).
+  static const List<int> zeros = [0x30, 0x660, 0x6F0];
+
+  /// Per digit script, the widest of its ten digits — every digit slot of
+  /// that script is this wide, so a turning column never jitters.
+  final Map<int, double> _digitWidths = {};
 
   TextStyle? _style;
   TextScaler _scaler = TextScaler.noScaling;
@@ -394,6 +422,7 @@ class _TickerModel {
     }
     _glyphs.clear();
     _widths.clear();
+    _digitWidths.clear();
     final probe = TextPainter(
       text: TextSpan(text: '0', style: style),
       textDirection: TextDirection.ltr,
@@ -402,12 +431,15 @@ class _TickerModel {
     height = probe.height;
     baseline = probe.computeDistanceToActualBaseline(TextBaseline.alphabetic);
     probe.dispose();
-    var w = 0.0;
-    for (var d = 0; d <= 9; d++) {
-      w = math.max(w, widthOf('$d'));
-    }
-    digitWidth = w;
   }
+
+  double _digitWidth(int zero) => _digitWidths.putIfAbsent(zero, () {
+        var w = 0.0;
+        for (var d = 0; d <= 9; d++) {
+          w = math.max(w, widthOf(String.fromCharCode(zero + d)));
+        }
+        return w;
+      });
 
   TextPainter glyph(String ch) => _glyphs.putIfAbsent(
         ch,
@@ -421,10 +453,15 @@ class _TickerModel {
   double widthOf(String ch) =>
       _widths.putIfAbsent(ch, () => glyph(ch).width);
 
-  bool _isDigit(String ch) =>
-      ch.length == 1 && ch.codeUnitAt(0) >= 0x30 && ch.codeUnitAt(0) <= 0x39;
-
-  double slotWidth(String ch) => _isDigit(ch) ? digitWidth : widthOf(ch);
+  double slotWidth(String ch) {
+    if (ch.length == 1) {
+      final c = ch.codeUnitAt(0);
+      for (final zero in zeros) {
+        if (c >= zero && c <= zero + 9) return _digitWidth(zero);
+      }
+    }
+    return widthOf(ch);
+  }
 
   /// The settled width of [chars] (slot → glyph).
   double measure(Map<int, Object> chars) {
@@ -574,7 +611,9 @@ class _RenderTickerText extends RenderBox {
   }
 
   /// One slot's drum at its live wheel position: the glyphs within the front
-  /// window, each foreshortened and dimmed by its angle.
+  /// window, each foreshortened and dimmed by its angle. A turning glyph is
+  /// drawn at rest into a layer whose matrix filter carries the turn, so it
+  /// moves at sub-pixel precision; its ink is never clipped to the slot.
   void _drawDrum(Canvas canvas, _Slot s, double x, double y, double slotW, double slotAlpha) {
     final m = _model;
     final base = s.wheel.round();
@@ -587,27 +626,33 @@ class _RenderTickerText extends RenderBox {
       final tp = m.glyph(ch);
       final dy = Drum.dy(theta, m.height);
       final scaleY = Drum.scaleY(theta);
-      final gx = x + (slotW - tp.width) / 2;
-      final layered = alpha < 0.999;
-      if (layered) {
-        canvas.saveLayer(
-          Rect.fromLTWH(x, y + dy - 1, slotW, m.height + 2),
-          Paint()..color = Color.fromRGBO(0, 0, 0, alpha),
-        );
+      final at = Offset(x + (slotW - tp.width) / 2, y);
+      final turning = dy.abs() > 0.001 || scaleY < 0.9999;
+      if (!turning && alpha >= 0.999) {
+        tp.paint(canvas, at);
+        continue;
       }
-      if (scaleY >= 0.999) {
-        tp.paint(canvas, Offset(gx, y + dy));
-      } else {
+      // Room for ink past the glyph's box — a tall figure, a wide sign.
+      final pad = m.height * 0.5;
+      final rest =
+          Rect.fromLTWH(x - pad, y - pad, slotW + pad * 2, m.height + pad * 2);
+      final paint = Paint()..color = Color.fromRGBO(0, 0, 0, alpha);
+      var bounds = rest;
+      if (turning) {
         final cx = x + slotW / 2;
-        final cy = y + dy + m.height / 2;
-        canvas.save();
-        canvas.translate(cx, cy);
-        canvas.scale(1, scaleY);
-        canvas.translate(-cx, -cy);
-        tp.paint(canvas, Offset(gx, y + dy));
-        canvas.restore();
+        final cy = y + m.height / 2;
+        final turn = Matrix4.translationValues(cx, cy + dy, 0)
+          ..multiply(Matrix4.diagonal3Values(1, scaleY, 1))
+          ..multiply(Matrix4.translationValues(-cx, -cy, 0));
+        paint.imageFilter = ui.ImageFilter.matrix(
+          turn.storage,
+          filterQuality: FilterQuality.medium,
+        );
+        bounds = bounds.expandToInclude(MatrixUtils.transformRect(turn, rest));
       }
-      if (layered) canvas.restore();
+      canvas.saveLayer(bounds, paint);
+      tp.paint(canvas, at);
+      canvas.restore();
     }
   }
 

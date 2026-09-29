@@ -1,13 +1,15 @@
 /// Kinetic typography for Flutter — per-letter, per-word and per-line text
-/// motion from one shaped paragraph.
+/// motion from one shaped paragraph, every letter moving whole.
 ///
 /// Start with [KineticText] (a label with effects), [TextMorph] (a label
 /// that rewrites itself in place) and [TickerText] (a figure whose digits
-/// turn like an odometer). Effects: [Rise], [Glint], [Blur],
-/// [Typewriter], [Bounce], [Squeeze], [Outline], [Scramble], [Shimmer],
-/// [Sparkle], [Float], [Wave], [Pulse], [Spotlight], [Flicker], [GradientInk],
-/// [Tint], [Highlight], [Underline]. Build your own on [TextEffect] over a
-/// [ShapedText].
+/// turn like an odometer).
+///
+/// Reveals: [Rise], [Glint], [Blur], [Typewriter], [Bounce], [Squeeze],
+/// [Outline], [Scramble], [Prism], [Wipe], [Flip], [Tumble]. Loops:
+/// [Shimmer], [Sparkle], [Float], [Wave], [Sway], [Pulse], [Spotlight],
+/// [Flicker], [Glow]. Ink: [GradientInk], [Tint]. Decor: [Highlight],
+/// [Underline]. Build your own on [TextEffect] over a [ShapedText].
 library;
 
 export 'src/easing.dart';

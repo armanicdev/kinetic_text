@@ -5,7 +5,8 @@ import '../effect.dart';
 import '../frame.dart';
 
 /// A rounded marker behind a slice — a highlighter stroke — that sweeps in
-/// from the reading start as the host's progress plays. A wrapped slice gets
+/// from the slice's own reading start (the right edge of a Kurdish word, the
+/// left of an English one) as the host's progress plays. A wrapped slice gets
 /// one stroke per line, the second starting a beat after the first.
 ///
 /// Not motion: under reduced motion the stroke is simply there.
@@ -47,6 +48,7 @@ class Highlight extends TextEffect {
     if (slice.isEmpty) return;
     final pieces = frame.shaped.lineRectsOf(slice.units);
     final p = frame.progress;
+    final rtl = frame.readsRtl(slice);
     frame.behind.add((canvas, f) {
       final paint = Paint()..color = color;
       for (var i = 0; i < pieces.length; i++) {
@@ -60,7 +62,7 @@ class Highlight extends TextEffect {
         final e = sweep ? curve.transform(staggered(p, i, pieces.length, stagger)) : 1.0;
         if (e <= 0) continue;
         final w = full.width * e;
-        final drawn = f.isRtl
+        final drawn = rtl
             ? Rect.fromLTRB(full.right - w, full.top, full.right, full.bottom)
             : Rect.fromLTRB(full.left, full.top, full.left + w, full.bottom);
         canvas.drawRRect(
@@ -94,7 +96,8 @@ enum UnderlinePosition {
   middle,
 }
 
-/// A stroke drawn on along the reading direction under (or through) a slice.
+/// A stroke drawn on along the slice's own reading direction under (or
+/// through) it.
 /// Behind the ink for an underline, so descenders stay clean; over it for a
 /// strike, so it reads as crossing the letters out.
 class Underline extends TextEffect {
@@ -153,6 +156,7 @@ class Underline extends TextEffect {
     if (slice.isEmpty) return;
     final pieces = frame.shaped.lineRectsOf(slice.units);
     final p = frame.progress;
+    final rtl = frame.readsRtl(slice);
     void painter(Canvas canvas, TextFrame f) {
       final paint = Paint()
         ..color = color
@@ -172,8 +176,8 @@ class Underline extends TextEffect {
         final x1 = rect.right - inset;
         if (x1 <= x0) continue;
         final w = (x1 - x0) * e;
-        final a = f.isRtl ? Offset(x1 - w, y) : Offset(x0, y);
-        final b = f.isRtl ? Offset(x1, y) : Offset(x0 + w, y);
+        final a = rtl ? Offset(x1 - w, y) : Offset(x0, y);
+        final b = rtl ? Offset(x1, y) : Offset(x0 + w, y);
         canvas.drawLine(a, b, paint);
       }
     }

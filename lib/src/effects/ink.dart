@@ -7,7 +7,9 @@ import '../frame.dart';
 /// A gradient in place of the ink on a slice — a rainbow on one word, a
 /// two-tone across a headline — optionally flowing along the reading
 /// direction. The gradient is stretched over the slice's own bounds, so
-/// `centerStart → centerEnd` spans exactly the recoloured word.
+/// `centerStart → centerEnd` spans exactly the recoloured word — and start
+/// and end are the slice's OWN reading start and end, so a Kurdish word in an
+/// English line starts its gradient on the right.
 ///
 /// Not motion: the fill stays under reduced motion; only the flow stops.
 class GradientInk extends TextEffect {
@@ -30,18 +32,16 @@ class GradientInk extends TextEffect {
     double? saturation,
     double? lightness,
     Duration? flow,
-  }) {
-    final base = seed == null
-        ? const HSLColor.fromAHSL(1, 0, 0.85, 0.55)
-        : HSLColor.fromColor(seed);
-    final s = saturation ?? base.saturation;
-    final l = lightness ?? base.lightness;
-    final colors = [
-      for (var i = 0; i < steps; i++)
-        HSLColor.fromAHSL(1, (base.hue + i * 360 / steps) % 360, s, l).toColor(),
-    ];
-    return GradientInk(colors: colors, flow: flow);
-  }
+  }) =>
+      GradientInk(
+        colors: rainbowColors(
+          seed: seed,
+          steps: steps,
+          saturation: saturation,
+          lightness: lightness,
+        ),
+        flow: flow,
+      );
 
   /// Gradient colours.
   final List<Color> colors;
@@ -71,6 +71,7 @@ class GradientInk extends TextEffect {
   void apply(TextFrame frame, UnitSlice slice) {
     if (slice.isEmpty) return;
     final f = flow;
+    final rtl = frame.readsRtl(slice);
     final Gradient g;
     if (f == null) {
       g = LinearGradient(begin: begin, end: end, colors: colors, stops: stops);
@@ -84,7 +85,7 @@ class GradientInk extends TextEffect {
         end: end,
         colors: [...colors, colors.first],
         tileMode: TileMode.repeated,
-        transform: _Slide(frame.isRtl ? shift : -shift),
+        transform: _Slide(rtl ? shift : -shift),
       );
     }
     frame.ink.add(InkPass(
@@ -92,6 +93,7 @@ class GradientInk extends TextEffect {
       bounds: frame.shaped.boundsOf(slice.units),
       gradient: g,
       blendMode: blendMode,
+      textDirection: frame.directionOf(slice),
     ));
   }
 

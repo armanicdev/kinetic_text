@@ -1,0 +1,22 @@
+# pub reads THIS file instead of .gitignore, so it repeats those rules.
+.dart_tool/
+.packages
+.pub/
+.pub-cache/
+build/
+doc/api/
+pubspec.lock
+example/pubspec.lock
+*.dill
+*.snapshot
+coverage/
+.idea/
+.vscode/
+.claude/
+*.iml
+*.swp
+.DS_Store
+
+# The Leraw font the tests shape real Kurdish with (OFL) stays in the
+# repository; the published package does not need to carry it.
+test/fonts/

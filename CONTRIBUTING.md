@@ -5,8 +5,14 @@
 Every effect is drawn from ONE shaped paragraph. A change that lays out a
 substring as its own `Text` or `TextPainter` — however convenient — breaks
 cursive joins in Arabic, Kurdish, Persian and Urdu, and will not be merged.
-The rule of the engine: shape once, then re-draw clusters of that one layout
-clipped to their cells.
+The rule of the engine: shape once, then re-draw units of that one layout
+from its class twins (the same layout with only one class of units inked),
+clipped to their cells, so every letter moves with all of its ink. Twins
+change paint attributes only — never anything that could re-shape the text.
+
+Directional work reads the text, not the page: a sweep, a marker or a
+cursor takes its direction from `frame.directionOf(slice)` (or a unit's own
+`direction`), never from `Directionality` alone.
 
 Effects are immutable and compare by value. A new effect needs `==` and
 `hashCode` over every field, or a parent rebuild will re-shape the text for

@@ -9,173 +9,6 @@ import 'effect.dart';
 import 'frame.dart';
 import 'shaped_text.dart';
 
-/// How far a pose can push ink outside its resting cell — what a layer must
-/// cover so nothing is hard-cut.
-double _reachOf(UnitPose pose, Rect cell) =>
-    math.max((pose.scale - 1).abs(), (pose.scale * pose.scaleY - 1).abs()) *
-        cell.longestSide +
-    pose.blur * 3;
-
-/// Paints one unit of a [ShapedText] in a [UnitPose].
-///
-/// The glyph is drawn AT REST, clipped to its cell, into a layer whose
-/// matrix image filter carries the pose — never under a raw canvas transform.
-/// Text engines place glyphs on the pixel grid (Impeller: quarter pixels in
-/// x, whole pixels in y) and re-rasterize the atlas at every new scale, so a
-/// letter translated or scaled directly steps pixel by pixel and shimmers
-/// while it moves. Resampling the resting raster instead (the trick behind
-/// `Transform.filterQuality`) is smooth at any fraction of a pixel; at rest
-/// the unit is not painted here at all, so the settled text is crisp vector
-/// text. Opacity and blur ride the same layer.
-void paintUnit(
-  Canvas canvas,
-  ShapedText shaped,
-  UnitBox unit,
-  UnitPose pose, {
-  Offset origin = Offset.zero,
-}) {
-  final cell = shaped.cellOf(unit);
-  final moved = pose.dx != 0 ||
-      pose.dy != 0 ||
-      pose.scale != 1 ||
-      pose.scaleY != 1;
-  final needsLayer = moved || pose.opacity < 1 || pose.blur > 0;
-  canvas.save();
-  canvas.translate(origin.dx, origin.dy);
-  if (needsLayer) {
-    final paint = Paint()
-      ..color = Color.fromRGBO(0, 0, 0, pose.opacity.clamp(0.0, 1.0));
-    ui.ImageFilter? filter;
-    if (pose.blur > 0) {
-      filter = ui.ImageFilter.blur(
-        sigmaX: pose.blur,
-        sigmaY: pose.blur,
-        tileMode: TileMode.decal,
-      );
-    }
-    if (moved) {
-      final cx = unit.rect.center.dx;
-      final cy = unit.rect.center.dy;
-      final sx = pose.scale;
-      final sy = pose.scale * pose.scaleY;
-      // Scale about the unit's centre, then translate — column-major 4×4.
-      final m = Float64List(16)
-        ..[0] = sx
-        ..[5] = sy
-        ..[10] = 1
-        ..[12] = pose.dx + cx - sx * cx
-        ..[13] = pose.dy + cy - sy * cy
-        ..[15] = 1;
-      final motion = ui.ImageFilter.matrix(
-        m,
-        filterQuality: FilterQuality.medium,
-      );
-      filter = filter == null
-          ? motion
-          : ui.ImageFilter.compose(outer: motion, inner: filter);
-    }
-    paint.imageFilter = filter;
-    // Covers the resting glyph (what is drawn) and where the pose takes it.
-    final reach = _reachOf(pose, cell);
-    final bounds = cell
-        .inflate(reach)
-        .expandToInclude(cell.shift(Offset(pose.dx, pose.dy)).inflate(reach));
-    canvas.saveLayer(bounds, paint);
-  }
-  canvas.clipRect(cell);
-  shaped.painter.paint(canvas, Offset.zero);
-  if (needsLayer) canvas.restore();
-  canvas.restore();
-}
-
-/// Paint every unit that is at rest — and every whitespace between them — in
-/// ONE draw, with the moved units' cells cut out of the clip. Each cell is a
-/// DIFFERENCE clip, never a hole in an even-odd path: two adjacent cells that
-/// overlap by a kerned hair would otherwise cancel each other out and let a
-/// sliver of resting ink show through under a moving letter.
-void paintResting(
-  Canvas canvas,
-  ShapedText shaped,
-  Iterable<UnitBox> moved, {
-  Offset origin = Offset.zero,
-}) {
-  canvas.save();
-  canvas.translate(origin.dx, origin.dy);
-  for (final u in moved) {
-    canvas.clipRect(shaped.cellOf(u), clipOp: ui.ClipOp.difference);
-  }
-  shaped.painter.paint(canvas, Offset.zero);
-  canvas.restore();
-}
-
-/// Draw one ink pass over the glyph layer: per unit, under that unit's own
-/// pose transform, so a recolour follows a moving letter. When none of the
-/// targeted units is posed the pass is ONE draw through one clip.
-void paintInk(
-  Canvas canvas,
-  TextFrame frame,
-  InkPass pass, {
-  Offset origin = Offset.zero,
-}) {
-  final shaped = frame.shaped;
-  final units = pass.units;
-  final targets = units ?? [for (final u in shaped.units) u.index];
-  if (targets.isEmpty) return;
-  final bounds = pass.bounds ?? shaped.boundsOf(targets);
-  final paint = Paint()..blendMode = pass.blendMode;
-  final g = pass.gradient;
-  if (g != null) {
-    paint.shader = g.createShader(bounds, textDirection: shaped.direction);
-  } else {
-    paint.color = pass.color!;
-  }
-  var anyPosed = false;
-  for (final i in targets) {
-    if (!frame.pose(i).isIdentity) {
-      anyPosed = true;
-      break;
-    }
-  }
-  if (!anyPosed) {
-    canvas.save();
-    canvas.translate(origin.dx, origin.dy);
-    if (units == null) {
-      // The whole text: one rect over everything.
-      canvas.drawRect(shaped.paintBounds, paint);
-    } else {
-      // A slice at rest: one clip made of its cells, one rect.
-      final cells = Path();
-      Rect? cover;
-      for (final i in targets) {
-        final cell = shaped.cellOf(shaped.units[i]);
-        cells.addRect(cell);
-        cover = cover == null ? cell : cover.expandToInclude(cell);
-      }
-      canvas.clipPath(cells);
-      canvas.drawRect(cover!, paint);
-    }
-    canvas.restore();
-    return;
-  }
-  for (final i in targets) {
-    final u = shaped.units[i];
-    final pose = frame.pose(i);
-    final cell = shaped.cellOf(u);
-    final cx = u.rect.center.dx;
-    final cy = u.rect.center.dy;
-    canvas.save();
-    canvas.translate(origin.dx + pose.dx, origin.dy + pose.dy);
-    if (pose.scale != 1 || pose.scaleY != 1) {
-      canvas.translate(cx, cy);
-      canvas.scale(pose.scale, pose.scale * pose.scaleY);
-      canvas.translate(-cx, -cy);
-    }
-    canvas.clipRect(cell);
-    canvas.drawRect(cell, paint);
-    canvas.restore();
-  }
-}
-
 /// Build the [TextFrame] for one paint: reset [poses], let every bound effect
 /// write into it (skipping motion under [reduced]).
 TextFrame composeFrame({
@@ -202,52 +35,253 @@ TextFrame composeFrame({
   return frame;
 }
 
-/// Paint a composed [frame]: decor behind, the glyph layer, decor over.
+/// Paint a composed [frame]: decor behind, the glyphs, decor over.
 void paintFrame(Canvas canvas, TextFrame frame, {Offset origin = Offset.zero}) {
+  if (origin != Offset.zero) {
+    canvas.save();
+    canvas.translate(origin.dx, origin.dy);
+  }
   for (final d in frame.behind) {
     d(canvas, frame);
   }
-  paintGlyphs(canvas, frame, origin: origin);
+  paintGlyphs(canvas, frame);
   for (final d in frame.over) {
     d(canvas, frame);
   }
+  if (origin != Offset.zero) canvas.restore();
 }
 
-/// The glyph layer for [frame]: resting units in one draw, moved units one by
-/// one, then the ink passes — all inside one layer so the ink blends only with
-/// glyph pixels. The layer is a single `saveLayer` only when something is posed
-/// or recoloured; a text at rest with no ink pass is one plain paint, so a
-/// finished reveal costs nothing more than a [Text].
+/// The glyphs of [frame], every unit whole.
+///
+/// A frame at rest with no ink pass is ONE plain paint of the paragraph, so a
+/// finished reveal costs no more than a [Text]. Otherwise:
+///
+/// * the units at rest are drawn from the class twins with the moving and
+///   recoloured units' cells cut out ([ShapedText.paintExcept]), with the
+///   passes that cover the whole text applied over them in one layer;
+/// * units at rest under a pass of their own are drawn exactly
+///   ([ShapedText.paintUnits]) into a layer per set of passes;
+/// * every moving unit is drawn exactly, at rest, into its own layer whose
+///   image filter carries the pose, with its passes applied inside.
+///
+/// Drawing a moving glyph at rest and resampling the raster through a matrix
+/// filter (the trick behind `Transform.filterQuality`) keeps it smooth at any
+/// fraction of a pixel; under a raw canvas transform the engine would snap it
+/// to the pixel grid and re-rasterize it at every scale, so a slow drift or a
+/// slight grow would step. Settled text is crisp vector text.
 void paintGlyphs(Canvas canvas, TextFrame frame, {Offset origin = Offset.zero}) {
   final shaped = frame.shaped;
   if (!frame.anyPosed && frame.ink.isEmpty) {
     shaped.painter.paint(canvas, origin);
     return;
   }
-  final moved = <UnitBox>[];
-  // The layer covers the paragraph plus wherever this frame's poses reach, so
-  // a long rise or a wide blur is never hard-cut at the layer's edge.
-  var bounds = shaped.paintBounds;
-  for (final u in shaped.units) {
-    final pose = frame.pose(u.index);
-    if (pose.isIdentity) continue;
-    moved.add(u);
-    final cell = shaped.cellOf(u);
-    bounds = bounds.expandToInclude(
-      cell.shift(Offset(pose.dx, pose.dy)).inflate(_reachOf(pose, cell)),
-    );
+  if (origin != Offset.zero) {
+    canvas.save();
+    canvas.translate(origin.dx, origin.dy);
   }
-  canvas.saveLayer(bounds.shift(origin), Paint());
-  paintResting(canvas, shaped, moved, origin: origin);
-  for (final u in moved) {
-    final pose = frame.pose(u.index);
+  _paintPlan(canvas, _Plan(frame));
+  if (origin != Offset.zero) canvas.restore();
+}
+
+/// The glyphs of [frame] for the units of [only] alone, posed and inked as in
+/// [paintGlyphs] — what a glow blurs, what a custom decor can trace.
+void paintGlyphsOf(Canvas canvas, TextFrame frame, Iterable<int> only) {
+  _paintPlan(canvas, _Plan(frame), only: only.toSet());
+}
+
+/// Who draws what in one frame.
+class _Plan {
+  _Plan(this.frame) : shaped = frame.shaped {
+    final ink = frame.ink;
+    final n = shaped.units.length;
+    whole = List<bool>.filled(ink.length, false);
+    passes = List<List<int>?>.filled(n, null);
+    for (var i = 0; i < ink.length; i++) {
+      final us = ink[i].units;
+      if (us == null || (us.length >= n && us.toSet().length == n)) {
+        whole[i] = true;
+        continue;
+      }
+      for (final u in us) {
+        if (u >= 0 && u < n) (passes[u] ??= <int>[]).add(i);
+      }
+    }
+    special = List<bool>.filled(n, false);
+    for (var u = 0; u < n; u++) {
+      if (!frame.pose(u).isIdentity) {
+        posed.add(u);
+        special[u] = true;
+      } else if (passes[u] != null) {
+        groups.putIfAbsent(passes[u]!.join(','), () => <int>[]).add(u);
+        special[u] = true;
+      }
+    }
+  }
+
+  final TextFrame frame;
+  final ShapedText shaped;
+
+  /// Per pass: true when it covers every unit.
+  late final List<bool> whole;
+
+  /// Per unit: the passes that single it out, or null.
+  late final List<List<int>?> passes;
+
+  /// Per unit: drawn somewhere other than the resting paint.
+  late final List<bool> special;
+
+  /// Units off their resting pose, in reading order.
+  final List<int> posed = [];
+
+  /// Units at rest under passes of their own, keyed by those passes.
+  final Map<String, List<int>> groups = {};
+
+  final Map<int, Paint> _paints = {};
+
+  /// The passes that reach unit [u], in the frame's order.
+  List<int> passesOf(int u) {
+    final own = passes[u];
+    return [
+      for (var i = 0; i < whole.length; i++)
+        if (whole[i] || (own != null && own.contains(i))) i,
+    ];
+  }
+
+  /// The paint of pass [i], its shader resolved once per frame.
+  Paint paintOf(int i) => _paints.putIfAbsent(i, () {
+        final pass = frame.ink[i];
+        final paint = Paint()..blendMode = pass.blendMode;
+        final g = pass.gradient;
+        if (g != null) {
+          final targets = pass.units ?? [for (final u in shaped.units) u.index];
+          paint.shader = g.createShader(
+            pass.bounds ?? shaped.boundsOf(targets),
+            textDirection: pass.textDirection ?? shaped.direction,
+          );
+        } else {
+          paint.color = pass.color!;
+        }
+        return paint;
+      });
+}
+
+void _paintPlan(Canvas canvas, _Plan plan, {Set<int>? only}) {
+  final shaped = plan.shaped;
+  final frame = plan.frame;
+
+  // 1. The text at rest, with the passes that cover all of it.
+  final wholePasses = [
+    for (var i = 0; i < plan.whole.length; i++)
+      if (plan.whole[i]) i,
+  ];
+  final restCover = shaped.paintBounds;
+  if (wholePasses.isNotEmpty) canvas.saveLayer(restCover, Paint());
+  if (only == null) {
+    shaped.paintExcept(canvas, plan.special);
+  } else {
+    shaped.paintUnits(canvas, [
+      for (final u in only)
+        if (!plan.special[u]) u,
+    ]);
+  }
+  for (final i in wholePasses) {
+    canvas.drawRect(restCover, plan.paintOf(i));
+  }
+  if (wholePasses.isNotEmpty) canvas.restore();
+
+  // 2. Units at rest under passes of their own, one layer per set of passes.
+  for (final group in plan.groups.values) {
+    final units = only == null
+        ? group
+        : [
+            for (final u in group)
+              if (only.contains(u)) u,
+          ];
+    if (units.isEmpty) continue;
+    final cover = shaped.cellsOf(units);
+    canvas.saveLayer(cover, Paint());
+    shaped.paintUnits(canvas, units);
+    for (final i in plan.passesOf(units.first)) {
+      canvas.drawRect(cover, plan.paintOf(i));
+    }
+    canvas.restore();
+  }
+
+  // 3. Moving units, each whole, in its own posed layer.
+  for (final u in plan.posed) {
+    if (only != null && !only.contains(u)) continue;
+    final pose = frame.pose(u);
     if (pose.opacity <= 0) continue;
-    paintUnit(canvas, shaped, u, pose, origin: origin);
+    _paintPosed(canvas, plan, shaped.units[u], pose);
   }
-  for (final pass in frame.ink) {
-    paintInk(canvas, frame, pass, origin: origin);
+}
+
+void _paintPosed(Canvas canvas, _Plan plan, UnitBox unit, UnitPose pose) {
+  final shaped = plan.shaped;
+  final cell = shaped.cellOf(unit);
+  final paint = Paint()
+    ..color = Color.fromRGBO(0, 0, 0, pose.opacity.clamp(0.0, 1.0));
+  ui.ImageFilter? filter;
+  var reach = cell;
+  if (pose.blur > 0) {
+    filter = ui.ImageFilter.blur(
+      sigmaX: pose.blur,
+      sigmaY: pose.blur,
+      tileMode: TileMode.decal,
+    );
+    reach = reach.inflate(pose.blur * 3);
+  }
+  // Covers the resting glyph (what is drawn) and where the pose takes it.
+  var bounds = reach;
+  if (pose.moves) {
+    final m = poseMatrix(shaped, unit, pose);
+    final motion = ui.ImageFilter.matrix(
+      m.storage,
+      filterQuality: FilterQuality.medium,
+    );
+    filter = filter == null
+        ? motion
+        : ui.ImageFilter.compose(outer: motion, inner: filter);
+    bounds = bounds.expandToInclude(MatrixUtils.transformRect(m, reach));
+  }
+  paint.imageFilter = filter;
+  canvas.saveLayer(bounds, paint);
+  canvas.save();
+  canvas.clipRect(cell);
+  shaped.classTwin(shaped.classOf(unit.index)).paint(canvas, Offset.zero);
+  canvas.restore();
+  for (final i in plan.passesOf(unit.index)) {
+    canvas.drawRect(cell, plan.paintOf(i));
   }
   canvas.restore();
+}
+
+/// The matrix that carries [unit] from its resting place into [pose]: the
+/// travel, then the turn, tilt and scale about the pose's pivot. A 3D tilt is
+/// seen in perspective from three unit-heights away, so a letter flipping
+/// over foreshortens like a card, not a squash.
+Matrix4 poseMatrix(ShapedText shaped, UnitBox unit, UnitPose pose) {
+  final line = shaped.lineOf(unit);
+  final c = unit.rect.center;
+  final pivot = switch (pose.pivot) {
+    UnitPivot.center => c,
+    UnitPivot.baseline => Offset(c.dx, line.baseline),
+    UnitPivot.top => Offset(c.dx, unit.rect.top),
+    UnitPivot.bottom => Offset(c.dx, unit.rect.bottom),
+  };
+  final m = Matrix4.translationValues(pivot.dx + pose.dx, pivot.dy + pose.dy, 0);
+  if (pose.rotateX != 0 || pose.rotateY != 0) {
+    final depth = 3 * math.max(unit.rect.width, line.height);
+    m.multiply(Matrix4.identity()..setEntry(3, 2, -1 / depth));
+  }
+  if (pose.rotation != 0) m.multiply(Matrix4.rotationZ(pose.rotation));
+  if (pose.rotateX != 0) m.multiply(Matrix4.rotationX(pose.rotateX));
+  if (pose.rotateY != 0) m.multiply(Matrix4.rotationY(pose.rotateY));
+  final sx = pose.scale;
+  final sy = pose.scale * pose.scaleY;
+  if (sx != 1 || sy != 1) m.multiply(Matrix4.diagonal3Values(sx, sy, 1));
+  m.multiply(Matrix4.translationValues(-pivot.dx, -pivot.dy, 0));
+  return m;
 }
 
 /// A [CustomPainter] over a [ShapedText] — the compositor as a painter, for a

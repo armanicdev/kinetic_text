@@ -137,11 +137,15 @@ void main() {
     // Centred by default, a word sliding up drifted sideways as the box eased
     // from one width to the other; the default is now the start edge, in
     // either direction.
-    for (final dir in TextDirection.values) {
-      await tester.pumpWidget(host(const TextMorph('Madyas',
-        morph: MorphStyle.slide(), duration: Duration(milliseconds: 200)), dir: dir));
-      await tester.pumpWidget(host(const TextMorph('Bookings',
-        morph: MorphStyle.slide(), duration: Duration(milliseconds: 200)), dir: dir));
+    // Each text holds the start of its OWN reading direction.
+    for (final (dir, a, b) in const [
+      (TextDirection.ltr, 'Madyas', 'Bookings'),
+      (TextDirection.rtl, 'گەشتەکان', 'حیجزەکانم'),
+    ]) {
+      await tester.pumpWidget(host(TextMorph(a,
+        morph: const MorphStyle.slide(), duration: const Duration(milliseconds: 200)), dir: dir));
+      await tester.pumpWidget(host(TextMorph(b,
+        morph: const MorphStyle.slide(), duration: const Duration(milliseconds: 200)), dir: dir));
       await tester.pump(const Duration(milliseconds: 80));
       final paint = tester.widget<CustomPaint>(find.descendant(
         of: find.byType(TextMorph), matching: find.byType(CustomPaint)));
@@ -149,6 +153,28 @@ void main() {
       expect(align.x, dir == TextDirection.ltr ? -1 : 1, reason: '$dir');
       await tester.pump(const Duration(milliseconds: 200));
     }
+  });
+
+  testWidgets('morph: a text adapts to its own direction unless told',
+      (tester) async {
+    Alignment alignOf() => (tester.widget<CustomPaint>(find.descendant(
+            of: find.byType(TextMorph), matching: find.byType(CustomPaint)))
+        .painter as dynamic).align as Alignment;
+    // An English value on a Kurdish page reads, and holds, left.
+    await tester.pumpWidget(host(const TextMorph('Bookings'), dir: TextDirection.rtl));
+    expect(alignOf().x, -1);
+    // A Kurdish value on an English page, right.
+    await tester.pumpWidget(host(const TextMorph('گەشتەکان')));
+    expect(alignOf().x, 1);
+    // Pinned to the page when asked; an explicit textAlign wins.
+    await tester.pumpWidget(host(const TextMorph('Bookings', textDirection: TextDirection.rtl),
+        dir: TextDirection.rtl));
+    expect(alignOf().x, 1);
+    await tester.pumpWidget(host(const TextMorph('Bookings', textAlign: TextAlign.center)));
+    expect(alignOf().x, 0);
+    await tester.pumpWidget(host(const TextMorph('Bookings', alignment: Alignment.centerRight,
+        textAlign: TextAlign.left)));
+    expect(alignOf().x, 1, reason: 'alignment wins over textAlign');
   });
 
   testWidgets('morph: keepShared false exchanges every unit', (tester) async {

@@ -396,7 +396,8 @@ class TextMorph extends StatefulWidget {
     this.keepShared = true,
     this.duration = const Duration(milliseconds: 360),
     this.widthCurve = KineticEase.arrive,
-    this.alignment = AlignmentDirectional.centerStart,
+    this.alignment,
+    this.textAlign,
     this.textDirection,
     this.pinLineHeight = true,
     this.intro = false,
@@ -416,7 +417,8 @@ class TextMorph extends StatefulWidget {
     this.keepShared = true,
     this.duration = const Duration(milliseconds: 360),
     this.widthCurve = KineticEase.arrive,
-    this.alignment = AlignmentDirectional.centerStart,
+    this.alignment,
+    this.textAlign,
     this.textDirection,
     this.pinLineHeight = true,
     this.intro = false,
@@ -451,15 +453,27 @@ class TextMorph extends StatefulWidget {
   /// The ease the box width follows between the two texts.
   final Curve widthCurve;
 
-  /// Where each text sits inside the box while the width moves. Start by
-  /// default: a label pinned to its leading edge, as text lays out anywhere
-  /// else, so a vertical morph (slide, roll, fold) moves only up and down
-  /// while the box eases to the new width. Centred, each text would ride the
-  /// box's changing middle and drift sideways as it rose; pass
-  /// [Alignment.center] only for a label that is itself centred.
-  final AlignmentGeometry alignment;
+  /// Where each text sits inside the box while the width moves. When set it
+  /// wins over [textAlign]; a directional alignment resolves against each
+  /// text's own direction.
+  ///
+  /// Null follows [textAlign] — and by default that is the START of each
+  /// text's own reading direction: a label pinned to its leading edge, as
+  /// text lays out anywhere else, so a vertical morph (slide, roll, fold)
+  /// moves only up and down while the box eases to the new width. Centred,
+  /// each text would ride the box's changing middle and drift sideways as it
+  /// rose; centre only a label that is itself centred.
+  final AlignmentGeometry? alignment;
 
-  /// Null reads the ambient [Directionality].
+  /// How each text aligns in the box when [alignment] is null: left, right,
+  /// centre, or start / end of the text's own direction. Null reads the
+  /// ambient [DefaultTextStyle.textAlign], else start.
+  final TextAlign? textAlign;
+
+  /// The direction both texts are laid out in. Null takes each text's OWN
+  /// direction (its first letter's — the HTML `dir="auto"` rule), falling
+  /// back to the ambient [Directionality] for a text with no letter, so a
+  /// morph from an English value to a Kurdish one reads each the right way.
   final TextDirection? textDirection;
 
   /// Force the strut so the box height is the style's line height regardless
@@ -555,13 +569,14 @@ class _TextMorphState extends State<TextMorph>
   void _shape(_MorphKey key) {
     _fromShaped?.dispose();
     _toShaped?.dispose();
-    ShapedText shape(String text, TextStyle style, InlineSpan? rich) =>
+    ShapedText shape(
+            String text, TextStyle style, InlineSpan? rich, TextDirection dir) =>
         ShapedText.shape(
           span: rich == null
               ? TextSpan(text: text, style: style)
               : TextSpan(style: style, children: [rich]),
           text: text,
-          direction: key.direction,
+          direction: dir,
           unit: widget.unit,
           scaler: key.scaler,
           maxLines: 1,
@@ -569,8 +584,8 @@ class _TextMorphState extends State<TextMorph>
               ? StrutStyle.fromTextStyle(style, forceStrutHeight: true)
               : null,
         );
-    _fromShaped = shape(_from, key.fromStyle, key.fromSpan);
-    _toShaped = shape(_to, key.style, key.toSpan);
+    _fromShaped = shape(_from, key.fromStyle, key.fromSpan, key.fromDirection);
+    _toShaped = shape(_to, key.style, key.toSpan, key.direction);
     _diff = key.keep
         ? MorphDiff.between(_fromShaped!, _toShaped!)
         : const MorphDiff(prefix: 0, suffix: 0);
@@ -580,11 +595,30 @@ class _TextMorphState extends State<TextMorph>
     _key = key;
   }
 
+  /// Where a text reading [dir] sits in the box.
+  Alignment _alignFor(TextDirection dir, TextAlign? ambient) {
+    final explicit = widget.alignment;
+    if (explicit != null) return explicit.resolve(dir);
+    final rtl = dir == TextDirection.rtl;
+    final x = switch (widget.textAlign ?? ambient ?? TextAlign.start) {
+      TextAlign.left => -1.0,
+      TextAlign.right => 1.0,
+      TextAlign.center => 0.0,
+      TextAlign.end => rtl ? -1.0 : 1.0,
+      TextAlign.start || TextAlign.justify => rtl ? 1.0 : -1.0,
+    };
+    return Alignment(x, 0);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final direction =
-        widget.textDirection ?? Directionality.maybeOf(context) ?? TextDirection.ltr;
-    final defaults = DefaultTextStyle.of(context).style;
+    final ambient = Directionality.maybeOf(context) ?? TextDirection.ltr;
+    TextDirection directionOf(String text) =>
+        widget.textDirection ?? ShapedText.directionOf(text) ?? ambient;
+    final direction = directionOf(_to);
+    final fromDirection = directionOf(_from);
+    final defaultText = DefaultTextStyle.of(context);
+    final defaults = defaultText.style;
     final style = defaults.merge(widget.style);
     final label = widget.semanticsLabel ?? _to;
     if (_reduced) {
@@ -594,6 +628,7 @@ class _TextMorphState extends State<TextMorph>
               _to,
               style: style,
               maxLines: 1,
+              textAlign: widget.textAlign,
               textDirection: direction,
               semanticsLabel: label,
             )
@@ -601,6 +636,7 @@ class _TextMorphState extends State<TextMorph>
               rich,
               style: style,
               maxLines: 1,
+              textAlign: widget.textAlign,
               textDirection: direction,
               semanticsLabel: label,
             );
@@ -613,6 +649,7 @@ class _TextMorphState extends State<TextMorph>
       style: style,
       fromStyle: fromStyle,
       direction: direction,
+      fromDirection: fromDirection,
       scaler: scaler,
       unit: widget.unit,
       pin: widget.pinLineHeight,
@@ -623,7 +660,8 @@ class _TextMorphState extends State<TextMorph>
     if (_toShaped == null || _key != key) _shape(key);
     final from = _fromShaped!;
     final to = _toShaped!;
-    final align = widget.alignment.resolve(direction);
+    final align = _alignFor(direction, defaultText.textAlign);
+    final fromAlign = _alignFor(fromDirection, defaultText.textAlign);
     final height = math.max(from.height, to.height);
 
     return Semantics(
@@ -647,6 +685,7 @@ class _TextMorphState extends State<TextMorph>
                   style: widget.morph,
                   progress: _c,
                   align: align,
+                  fromAlign: fromAlign,
                   up: _up,
                 ),
               ),
@@ -666,6 +705,7 @@ class _MorphKey {
     required this.style,
     required this.fromStyle,
     required this.direction,
+    required this.fromDirection,
     required this.scaler,
     required this.unit,
     required this.pin,
@@ -675,7 +715,7 @@ class _MorphKey {
   });
   final String from, to;
   final TextStyle style, fromStyle;
-  final TextDirection direction;
+  final TextDirection direction, fromDirection;
   final TextScaler scaler;
   final TextUnit unit;
   final bool pin;
@@ -690,6 +730,7 @@ class _MorphKey {
       other.style == style &&
       other.fromStyle == fromStyle &&
       other.direction == direction &&
+      other.fromDirection == fromDirection &&
       other.scaler == scaler &&
       other.unit == unit &&
       other.pin == pin &&
@@ -699,8 +740,8 @@ class _MorphKey {
 
   @override
   int get hashCode =>
-      Object.hash(from, to, style, fromStyle, direction, scaler, unit, pin, keep,
-          fromSpan, toSpan);
+      Object.hash(from, to, style, fromStyle, direction, fromDirection, scaler,
+          unit, pin, keep, fromSpan, toSpan);
 }
 
 class _MorphPainter extends CustomPainter {
@@ -711,6 +752,7 @@ class _MorphPainter extends CustomPainter {
     required this.style,
     required this.progress,
     required this.align,
+    required this.fromAlign,
     required this.up,
   })  : _fromPoses = List.generate(from.units.length, (_) => UnitPose()),
         _toPoses = List.generate(to.units.length, (_) => UnitPose()),
@@ -732,7 +774,12 @@ class _MorphPainter extends CustomPainter {
   final MorphDiff diff;
   final MorphStyle style;
   final Animation<double> progress;
+
+  /// Where the new text sits in the box.
   final Alignment align;
+
+  /// Where the old text sits in the box.
+  final Alignment fromAlign;
   final bool up;
 
   // Allocated once per painter (per build), reused every frame.
@@ -741,20 +788,20 @@ class _MorphPainter extends CustomPainter {
   final List<int> _fromMid;
   final List<int> _toMid;
 
-  Offset _origin(ShapedText s, Size box) => Offset(
-        (box.width - s.width) * (align.x + 1) / 2,
-        (box.height - s.height) * (align.y + 1) / 2,
+  static Offset _origin(ShapedText s, Size box, Alignment a) => Offset(
+        (box.width - s.width) * (a.x + 1) / 2,
+        (box.height - s.height) * (a.y + 1) / 2,
       );
 
   @override
   void paint(Canvas canvas, Size size) {
     final p = progress.value;
-    final toOrigin = _origin(to, size);
+    final toOrigin = _origin(to, size, align);
     if (p >= 1) {
       to.painter.paint(canvas, toOrigin);
       return;
     }
-    final fromOrigin = _origin(from, size);
+    final fromOrigin = _origin(from, size, fromAlign);
     final outP = (p / style.exitEnd).clamp(0.0, 1.0);
     final inP = ((p - style.enterStart) / (1 - style.enterStart)).clamp(0.0, 1.0);
     final settle = KineticEase.arrive.transform(p);
@@ -826,5 +873,6 @@ class _MorphPainter extends CustomPainter {
       oldDelegate.progress != progress ||
       oldDelegate.style != style ||
       oldDelegate.align != align ||
+      oldDelegate.fromAlign != fromAlign ||
       oldDelegate.up != up;
 }

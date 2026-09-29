@@ -94,10 +94,16 @@ class KineticController {
 /// [Sparkle], [Float], a flowing [GradientInk]) run on their own clock while
 /// the widget is on screen.
 ///
-/// Lays out like a [Text]: it reads the ambient [DefaultTextStyle],
-/// [Directionality], text scale and bold-text setting, wraps to its
-/// constraints, reports intrinsic sizes and a text baseline, and speaks its
-/// plain text to assistive technology.
+/// Lays out like a [Text]: it reads the ambient [DefaultTextStyle], text
+/// scale and bold-text setting, wraps to its constraints, reports intrinsic
+/// sizes and a text baseline, and speaks its plain text to assistive
+/// technology. Unless told otherwise it reads in the text's OWN direction
+/// (see [textDirection]), and every sweep, marker and cursor follows the
+/// direction of the words it runs over.
+///
+/// Every letter moves whole: a moving letter carries all of its ink — the
+/// tail and marks of a Kurdish `ڕ`, an italic overhang — and leaves nothing
+/// of itself behind (see [ShapedText]).
 ///
 /// Reduced motion (the platform flag, or [reduceMotion]) resolves every
 /// one-shot to its end state, stops every loop, and keeps every fill, marker
@@ -172,10 +178,18 @@ class KineticText extends StatefulWidget {
   /// What a stagger counts and a pose moves.
   final TextUnit unit;
 
-  /// Null reads the ambient [DefaultTextStyle.textAlign], else start.
+  /// Null reads the ambient [DefaultTextStyle.textAlign], else start —
+  /// where start is the start of the text's own direction ([textDirection]),
+  /// so an unaligned Kurdish line sits right and an English one left.
   final TextAlign? textAlign;
 
-  /// Null reads the ambient [Directionality].
+  /// The direction the paragraph is laid out in. Null takes the text's OWN
+  /// direction — that of its first letter, the HTML `dir="auto"` rule — so a
+  /// Kurdish label in an English screen reads right to left (its full stop on
+  /// the left, its start aligned right) and an English one in a Kurdish
+  /// screen left to right; text with no letter (a figure, an emoji) follows
+  /// the ambient [Directionality]. Pass `Directionality.of(context)` to pin a
+  /// label to the page's direction instead.
   final TextDirection? textDirection;
 
   /// Null reads the ambient [DefaultTextStyle.maxLines].
@@ -381,6 +395,7 @@ class _KineticTextState extends State<KineticText>
       style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
     }
     final direction = widget.textDirection ??
+        ShapedText.directionOf(widget.plainText) ??
         Directionality.maybeOf(context) ??
         TextDirection.ltr;
     final scaler = MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling;

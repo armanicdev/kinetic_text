@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -7,14 +8,20 @@ import '../easing.dart';
 import '../effect.dart';
 import '../frame.dart';
 import '../internal.dart';
+import '../painter.dart';
 
 /// A soft band of light glides across the text in reading order while the
 /// letters under it lift a hair and settle — then the text rests until the
-/// next sweep. One clock drives both the sheen and the pop, so they never
+/// next sweep. One clock drives both the sheen and the lift, so they never
 /// drift apart.
 ///
-/// The band moves physically left→right for LTR text and right→left for RTL,
-/// so a Kurdish or Arabic label shimmers in its own reading order.
+/// The band starts where the text ITSELF starts reading: right to left over a
+/// Kurdish or Arabic label, left to right over an English one, whatever the
+/// page's direction. [origin] turns it: from the far end, from a physical
+/// edge, out from the middle, or in from both edges.
+///
+/// Each letter under the band is lifted whole — the tail of a `ڕ` and the V
+/// beneath it rise with their letter.
 ///
 /// If you also import `package:shimmer`, hide one of the two `Shimmer`s.
 class Shimmer extends TextEffect {
@@ -28,12 +35,36 @@ class Shimmer extends TextEffect {
     this.pop = 0.18,
     this.intensity = 0.5,
     this.blendMode = BlendMode.srcATop,
+    this.origin = SweepOrigin.reading,
   });
+
+  /// A band that runs through every hue — [rainbowColors] from [seed] — for
+  /// a celebration, a reward, a "you did it".
+  factory Shimmer.rainbow({
+    Color? seed,
+    int steps = 7,
+    Duration period = const Duration(milliseconds: 3200),
+    double rest = 0.4,
+    double band = 0.32,
+    double pop = 0.14,
+    double intensity = 0.9,
+    SweepOrigin origin = SweepOrigin.reading,
+  }) =>
+      Shimmer(
+        colors: rainbowColors(seed: seed, steps: steps),
+        period: period,
+        rest: rest,
+        band: band,
+        pop: pop,
+        intensity: intensity,
+        origin: origin,
+      );
 
   /// A single feathered light. Ignored when [colors] is set.
   final Color color;
 
-  /// A multi-stop iridescent band flowed across the text.
+  /// A multi-stop iridescent band, its last colour leading whichever way the
+  /// band runs.
   final List<Color>? colors;
 
   /// One glide plus its rest.
@@ -45,7 +76,8 @@ class Shimmer extends TextEffect {
   /// Half-width of the band as a fraction of the slice, `0.02..0.49`.
   final double band;
 
-  /// Peak per-unit scale bump under the band (0.18 = +18%).
+  /// Peak per-unit scale bump under the band (0.18 = +18%), grown from the
+  /// baseline so a letter lifts rather than swells.
   final double pop;
 
   /// Peak sheen opacity, as a fraction of the colour's own alpha.
@@ -53,6 +85,9 @@ class Shimmer extends TextEffect {
 
   /// [BlendMode.srcATop] tints the ink; [BlendMode.srcIn] replaces it.
   final BlendMode blendMode;
+
+  /// Where the band starts.
+  final SweepOrigin origin;
 
   @override
   bool get continuous => true;
@@ -89,57 +124,70 @@ class Shimmer extends TextEffect {
     if (raw >= 1) return; // resting — plain text, no layer, no shader
     final b = band.clamp(0.02, 0.49);
     final eased = KineticEase.sweep.transform(raw);
-    final p = bandCenter(eased, b, rtl: frame.isRtl);
-    final bounds = frame.shaped.boundsOf(slice.units);
+    final rtl = frame.readsRtl(slice);
+    final centers = Sweep.centers(origin, eased, b, rtl: rtl);
+    final shaped = frame.shaped;
+    final bounds = shaped.boundsOf(slice.units);
     if (bounds.width <= 0) return;
+    final appear = Sweep.appear(origin, eased);
 
-    for (final i in slice.units) {
-      final u = frame.shaped.units[i];
-      final c = (u.rect.center.dx - bounds.left) / bounds.width;
-      final d = (p - c) / b;
-      final bump = math.exp(-d * d);
-      if (bump < 0.01) continue;
-      frame.pose(i).scale *= 1 + pop * bump;
+    if (pop != 0) {
+      for (final i in slice.units) {
+        final c = (shaped.units[i].rect.center.dx - bounds.left) / bounds.width;
+        var bump = 0.0;
+        for (final p in centers) {
+          final d = (p - c) / b;
+          bump = math.max(bump, math.exp(-d * d));
+        }
+        bump *= appear;
+        if (bump < 0.01) continue;
+        final pose = frame.pose(i);
+        pose.scale *= 1 + pop * bump;
+        pose.pivot = UnitPivot.baseline;
+      }
     }
 
-    final k = intensity.clamp(0.0, 1.0);
-    final List<Color> stopsColors;
-    final List<double> stops;
+    final k = intensity.clamp(0.0, 1.0) * appear;
     final multi = colors;
-    if (multi != null && multi.isNotEmpty) {
-      stopsColors = [
-        multi.first.withValues(alpha: 0),
-        for (final c in multi) c.withValues(alpha: c.a * k),
-        multi.last.withValues(alpha: 0),
-      ];
-      final inner = multi.length;
-      stops = [
-        (p - b).clamp(0.0, 1.0),
-        for (var j = 0; j < inner; j++)
-          (p - b + (j + 1) / (inner + 1) * 2 * b).clamp(0.0, 1.0),
-        (p + b).clamp(0.0, 1.0),
-      ];
-    } else {
-      stopsColors = [
-        color.withValues(alpha: 0),
-        color.withValues(alpha: color.a * k * 0.35),
-        color.withValues(alpha: color.a * k),
-        color.withValues(alpha: color.a * k * 0.35),
-        color.withValues(alpha: 0),
-      ];
-      stops = bandStops(p, b);
+    for (var n = 0; n < centers.length; n++) {
+      final p = centers[n];
+      if (p + b <= 0 || p - b >= 1) continue; // off the slice
+      final List<Color> stopsColors;
+      final List<double> stops;
+      if (multi != null && multi.isNotEmpty) {
+        // The last colour leads: mirrored when this band runs leftwards.
+        final leftward = Sweep.travelsLeft(origin, rtl: rtl) != (n == 1);
+        final ordered = leftward ? multi.reversed.toList() : multi;
+        stopsColors = [
+          ordered.first.withValues(alpha: 0),
+          for (final c in ordered) c.withValues(alpha: c.a * k),
+          ordered.last.withValues(alpha: 0),
+        ];
+        final inner = ordered.length;
+        stops = [
+          (p - b).clamp(0.0, 1.0),
+          for (var j = 0; j < inner; j++)
+            (p - b + (j + 1) / (inner + 1) * 2 * b).clamp(0.0, 1.0),
+          (p + b).clamp(0.0, 1.0),
+        ];
+      } else {
+        stopsColors = [
+          for (final w in bandProfile) color.withValues(alpha: color.a * k * w),
+        ];
+        stops = bandStops(p, b);
+      }
+      frame.ink.add(InkPass(
+        units: slice.units,
+        bounds: bounds,
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: stopsColors,
+          stops: stops,
+        ),
+        blendMode: blendMode,
+      ));
     }
-    frame.ink.add(InkPass(
-      units: slice.units,
-      bounds: bounds,
-      gradient: LinearGradient(
-        begin: Alignment.centerLeft,
-        end: Alignment.centerRight,
-        colors: stopsColors,
-        stops: stops,
-      ),
-      blendMode: blendMode,
-    ));
   }
 
   @override
@@ -152,7 +200,8 @@ class Shimmer extends TextEffect {
       other.band == band &&
       other.pop == pop &&
       other.intensity == intensity &&
-      other.blendMode == blendMode;
+      other.blendMode == blendMode &&
+      other.origin == origin;
 
   @override
   int get hashCode => Object.hash(
@@ -164,6 +213,7 @@ class Shimmer extends TextEffect {
         pop,
         intensity,
         blendMode,
+        origin,
       );
 }
 
@@ -352,6 +402,55 @@ class Wave extends TextEffect {
   int get hashCode => Object.hash(amplitude, period, length);
 }
 
+/// Each letter swings a few degrees on a pin at the top of its line, a beat
+/// behind the one before — a hanging sign in a breeze. Playful; keep it to a
+/// word or a short line.
+class Sway extends TextEffect {
+  /// Swing ±[angle] radians over [period]; neighbours [phaseStep] of a cycle
+  /// apart.
+  const Sway({
+    this.angle = 0.07,
+    this.period = const Duration(milliseconds: 2400),
+    this.phaseStep = 0.09,
+  });
+
+  /// Peak swing, radians (0.07 ≈ 4°).
+  final double angle;
+
+  /// One full swing and back.
+  final Duration period;
+
+  /// Phase offset between neighbouring units, as a fraction of a cycle.
+  final double phaseStep;
+
+  @override
+  bool get continuous => true;
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    final periodS = period.inMicroseconds / 1e6;
+    if (periodS <= 0 || angle == 0) return;
+    final w = tau * frame.time / periodS;
+    // The swing travels in reading order.
+    final lead = frame.readsRtl(slice) ? -1.0 : 1.0;
+    for (var k = 0; k < slice.length; k++) {
+      final pose = frame.pose(slice.units[k]);
+      pose.rotation += lead * angle * math.sin(w - k * phaseStep * tau);
+      pose.pivot = UnitPivot.top;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Sway &&
+      other.angle == angle &&
+      other.period == period &&
+      other.phaseStep == phaseStep;
+
+  @override
+  int get hashCode => Object.hash(angle, period, phaseStep);
+}
+
 /// A slow glow breathes through the letters' ink — for a "live" or "waiting"
 /// label that should hold attention without moving. One ink pass, no pose,
 /// no layer per letter.
@@ -409,8 +508,9 @@ class Pulse extends TextEffect {
 /// The [Shimmer]'s band, turned into light: the text sits at [dim] and the
 /// letters under the band are full ink — the band itself is the sweep, the
 /// feather and the ease the shimmer has, so a Kurdish label is lit in its
-/// reading order. Optionally the band also draws a [focus] outline round the
-/// letters it passes, so the light reads as a focus ring travelling the word.
+/// own reading order. Optionally the band also draws a [focus] outline round
+/// the letters it passes, so the light reads as a focus ring travelling the
+/// word.
 ///
 /// The dim level eases in as a sweep starts and out as it ends, so the line
 /// is plain full ink while it rests between sweeps. One alpha-mask ink pass
@@ -426,6 +526,7 @@ class Spotlight extends TextEffect {
     this.rest = 0.5,
     this.focus,
     this.focusWidth = 1.2,
+    this.origin = SweepOrigin.reading,
   });
 
   /// Opacity of a letter outside the band, `0..1`.
@@ -446,6 +547,9 @@ class Spotlight extends TextEffect {
 
   /// The focus outline's stroke width, logical pixels.
   final double focusWidth;
+
+  /// Where the band starts.
+  final SweepOrigin origin;
 
   @override
   bool get continuous => true;
@@ -471,12 +575,13 @@ class Spotlight extends TextEffect {
     if (raw >= 1) return; // resting — plain text, no mask, no layer
     final b = band.clamp(0.02, 0.49);
     final eased = KineticEase.sweep.transform(raw);
-    final p = Shimmer.bandCenter(eased, b, rtl: frame.isRtl);
+    final centers = Sweep.centers(origin, eased, b, rtl: frame.readsRtl(slice));
     final shaped = frame.shaped;
     final bounds = shaped.boundsOf(slice.units);
     if (bounds.width <= 0) return;
     final level = lerp(1, dim.clamp(0.0, 1.0), dimEnvelope(raw));
-    final stops = Shimmer.bandStops(p, b);
+    final appear = Sweep.appear(origin, eased);
+    final (stops, weights) = Sweep.maskStops(centers, b);
     frame.ink.add(InkPass(
       units: slice.units,
       bounds: bounds,
@@ -484,8 +589,8 @@ class Spotlight extends TextEffect {
         begin: Alignment.centerLeft,
         end: Alignment.centerRight,
         colors: [
-          for (final w in Shimmer.bandProfile)
-            Color.fromRGBO(255, 255, 255, lerp(level, 1, w)),
+          for (final w in weights)
+            Color.fromRGBO(255, 255, 255, lerp(level, 1, w * appear)),
         ],
         stops: stops,
       ),
@@ -493,17 +598,11 @@ class Spotlight extends TextEffect {
     ));
     final f = focus;
     if (f == null) return;
+    final units = slice.units;
     frame.over.add((canvas, fr) {
-      final twin = shaped.strokedTwin(width: focusWidth, color: f);
-      final cells = Path();
-      for (final i in slice.units) {
-        cells.addRect(shaped.cellOf(shaped.units[i]));
-      }
-      final cover = cells.getBounds();
-      canvas.save();
-      canvas.clipPath(cells);
+      final cover = shaped.cellsOf(units);
       canvas.saveLayer(cover, Paint());
-      twin.paint(canvas, Offset.zero);
+      shaped.paintUnits(canvas, units, stroke: focusWidth, strokeColor: f);
       canvas.drawRect(
         cover,
         Paint()
@@ -512,13 +611,12 @@ class Spotlight extends TextEffect {
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
             colors: [
-              for (final w in Shimmer.bandProfile)
-                Color.fromRGBO(255, 255, 255, w),
+              for (final w in weights)
+                Color.fromRGBO(255, 255, 255, w * appear),
             ],
             stops: stops,
-          ).createShader(bounds, textDirection: shaped.direction),
+          ).createShader(bounds),
       );
-      canvas.restore();
       canvas.restore();
     });
   }
@@ -531,10 +629,12 @@ class Spotlight extends TextEffect {
       other.period == period &&
       other.rest == rest &&
       other.focus == focus &&
-      other.focusWidth == focusWidth;
+      other.focusWidth == focusWidth &&
+      other.origin == origin;
 
   @override
-  int get hashCode => Object.hash(dim, band, period, rest, focus, focusWidth);
+  int get hashCode =>
+      Object.hash(dim, band, period, rest, focus, focusWidth, origin);
 }
 
 /// A few letters stutter dark and recover, like a sign with a loose contact.
@@ -601,4 +701,87 @@ class Flicker extends TextEffect {
 
   @override
   int get hashCode => Object.hash(count, period, depth, seed);
+}
+
+/// A soft halo of light round the letters — neon on a dark ground, a warm
+/// bloom on a light one — drawn behind the glyphs from a blurred copy of the
+/// same ink, so it follows every letter as it moves and takes on any ink
+/// pass (a rainbow glows in rainbow). Still by default; with [period] it
+/// breathes.
+///
+/// Not motion: under reduced motion the halo stays, only the breath stops.
+class Glow extends TextEffect {
+  /// A halo of [color] (or the letters' own ink when null), blurred by
+  /// [radius] pixels, at [intensity].
+  const Glow({
+    this.color,
+    this.radius = 8,
+    this.intensity = 0.85,
+    this.period,
+  });
+
+  /// The halo's colour. Null = each letter's own ink.
+  final Color? color;
+
+  /// Blur radius, logical pixels — about how far the light reaches.
+  final double radius;
+
+  /// Peak strength of the halo, `0..1`.
+  final double intensity;
+
+  /// One breath, dim to bright and back. Null = a steady glow.
+  final Duration? period;
+
+  @override
+  bool get continuous => period != null;
+
+  @override
+  bool get motionOnly => false;
+
+  @override
+  void apply(TextFrame frame, UnitSlice slice) {
+    if (slice.isEmpty || radius <= 0 || intensity <= 0) return;
+    var level = intensity.clamp(0.0, 1.0);
+    final p = period;
+    if (p != null) {
+      final periodS = p.inMicroseconds / 1e6;
+      if (periodS > 0) {
+        level *= 0.55 + 0.45 * (0.5 - 0.5 * math.cos(tau * frame.time / periodS));
+      }
+    }
+    final units = slice.units;
+    final c = color;
+    frame.behind.add((canvas, f) {
+      final sigma = radius / 2;
+      final cover = f.shaped.cellsOf(units).inflate(radius * 3);
+      canvas.saveLayer(
+        cover,
+        Paint()
+          ..color = Color.fromRGBO(0, 0, 0, level)
+          ..imageFilter = ui.ImageFilter.blur(
+            sigmaX: sigma,
+            sigmaY: sigma,
+            tileMode: TileMode.decal,
+          ),
+      );
+      paintGlyphsOf(canvas, f, units);
+      if (c != null) {
+        canvas.drawRect(cover, Paint()
+          ..color = c
+          ..blendMode = BlendMode.srcIn);
+      }
+      canvas.restore();
+    });
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Glow &&
+      other.color == color &&
+      other.radius == radius &&
+      other.intensity == intensity &&
+      other.period == period;
+
+  @override
+  int get hashCode => Object.hash(color, radius, intensity, period);
 }

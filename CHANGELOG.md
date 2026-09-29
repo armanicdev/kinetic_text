@@ -1,5 +1,94 @@
 # Changelog
 
+## 1.0.0
+
+The engine is finished: every letter moves whole, every sweep reads the way
+its words do, and ten new effects.
+
+### Every letter moves whole
+
+- **Glyph-exact units.** A glyph's ink does not stop at its box: the tail of a
+  Kurdish `ڕ` and the V under it, an italic overhang, a stacked mark all reach
+  into the next letter's box or below the line. Units used to be cut out along
+  their boxes, so a moving letter lost those parts and left them behind on its
+  neighbour (the shimmer artefact on `ڕ`). Now every unit is drawn from a
+  *class twin* — the same paragraph laid out again with only one class of
+  units inked — clipped to a generous cell, so a moving letter carries all of
+  its ink and leaves none behind. The twins stack back into the original
+  pixel for pixel; they are built lazily, the first time something moves, and
+  a text at rest is still one plain paint.
+- **Ink passes are exact too.** A tint, a sheen or a mask applies inside each
+  moving letter's own layer, and over exactly the glyphs of its slice.
+- **Ligatures are one unit.** Characters the font sets as one glyph (`fi`, a
+  lam-alef) move together instead of each carrying half a glyph.
+- Underlines and span backgrounds stay on the line under moving letters,
+  drawn once and exactly; an ellipsis survives while a letter moves.
+
+### Direction and alignment from the text itself
+
+- **`KineticText` and `TextMorph` read in the text's own direction.** With no
+  `textDirection` given, a paragraph takes the direction of its first letter
+  (the HTML `dir="auto"` rule): an English label on a Kurdish page reads left
+  to right, its `!` on the right; a Kurdish label on an English page right to
+  left, aligned right. Text with no letter (a figure) follows the ambient
+  `Directionality`. Pass `textDirection` to pin a label to the page.
+- **Every sweep follows the words it runs over.** `Shimmer`, `Spotlight`,
+  `GradientInk` (and its flow), `Highlight`, `Underline`, `Wipe`, `Sway`, the
+  `Typewriter` cursor and the `Outline` trace take their direction from their
+  own slice: a Kurdish word inside an English line shimmers right to left.
+- **`SweepOrigin`** — `reading` (the default), `end`, `left`, `right`,
+  `center` (out from the middle, two bands) and `edges` (in from both sides)
+  — on `Shimmer`, `Spotlight` and `Wipe`.
+- **`TextMorph.textAlign`.** `alignment` is now optional: when set it wins;
+  otherwise `textAlign` (or the ambient `DefaultTextStyle.textAlign`) places
+  each text — start by default, the start of that text's own direction.
+- `ShapedText.directionOf`, `ShapedText.readingDirectionOf`,
+  `TextFrame.directionOf` / `readsRtl`, `InkPass.textDirection`.
+
+### Better motion
+
+- **`Outline` traces in the text's own colour by default.** `color` is now
+  optional; `colors` runs the rings through a gradient along the reading
+  order, `Outline.rainbow()` through every hue; `fill: false` leaves the text
+  outlined. The trace turns clockwise for a left-to-right letter and
+  anticlockwise for a right-to-left one.
+- `Shimmer` lifts its letters from the baseline instead of swelling them
+  about their middle; `Bounce` and `Squeeze` land on the baseline.
+- Poses gained `rotation`, `rotateX` and `rotateY` (a 3D tilt seen in
+  perspective) and a `pivot` (`UnitPivot.center`, `baseline`, `top`,
+  `bottom`); `poseMatrix` exposes the transform.
+- `TickerText` resamples a turning glyph through a matrix filter (smooth at
+  any fraction of a pixel, like every other moving glyph), never clips a
+  glyph to its slot, and turns Arabic-Indic (`٠–٩`) and Persian (`۰–۹`)
+  digits on their own rings.
+
+### New effects
+
+- **`Prism`** — the rainbow intro: letters rise in washed in the spectrum and
+  settle into their own ink.
+- **`Wipe`** — a soft edge uncovers the text, from any `SweepOrigin`.
+- **`Flip`** — letters flip up in 3D perspective, about the baseline or about
+  their middle.
+- **`Tumble`** — letters drop in turned and land upright.
+- **`Glow`** — a neon halo from a blurred copy of the ink; follows moving
+  letters and any ink pass; still or breathing.
+- **`Sway`** — letters swing on a pin, a beat apart.
+- `Shimmer.rainbow`, `Glint.rainbow`, `Outline.rainbow`, and
+  `rainbowColors` / `colorAround` for your own.
+- `paintGlyphsOf` — draw a subset of a frame's letters, posed and inked (what
+  `Glow` blurs).
+
+### Breaking
+
+- `paintUnit`, `paintResting` and `paintInk` are gone; `paintFrame`,
+  `paintGlyphs` and `paintGlyphsOf` draw frames, and `ShapedText.paintUnits`
+  / `paintExcept` draw units exactly.
+- `ShapedText.cellOf` now includes the overhang margin (`ShapedText.overhang`
+  of a line height on every side).
+- `paintFrame` translates its decor by `origin` as well as its glyphs.
+- The default direction change above: pass `textDirection:
+  Directionality.of(context)` where a label must follow the page.
+
 ## 0.3.0
 
 - **New: `TextMorph.keepShared`.** True by default, as before: the letters the
