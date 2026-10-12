@@ -41,7 +41,7 @@ like an odometer.
 
 ```yaml
 dependencies:
-  kinetic_text: ^1.0.0
+  kinetic_text: ^1.1.0
 ```
 
 ```dart
@@ -162,6 +162,30 @@ leaves and arrives in the chosen style — `sheen`, `slide`, `roll`, `fold`
 (split-flap), `wipe` or `crossfade` — and the box's width eases between the
 two. `keepShared: false` exchanges everything; `TextMorph.rich` morphs a
 line in several styles as one.
+
+For carousel titles, exchange repeated words too and keep the two runs from
+being superimposed:
+
+```dart
+TextMorph(
+  title,
+  keepShared: false,
+  alignment: Alignment.center,
+  morph: SheenMorph(
+    sweepDirection: TextDirection.rtl, // physical right-to-left travel
+    exitEnd: 0.5,
+    enterStart: 0.5, // departure completes before arrival starts
+    sheen: [accent, highlight],
+  ),
+);
+```
+
+`SheenMorph.sweepDirection` controls the physical sweep independently of text
+layout: `ltr` sweeps left to right, `rtl` right to left, including mixed-script
+labels. Both exit and arrival follow that direction, and the first sheen colour
+starts at its origin. Leave it null to follow each text's reading order; use
+`order: StaggerOrder.reverse` to reverse that reading order. Setting
+`enterStart >= exitEnd` prevents outgoing and incoming text from overlapping.
 
 `roll` turns the changed letters over a drum: the old glyph curves away
 (foreshortening and dimming as it leaves the drum's window), the new one

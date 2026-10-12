@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- **`SheenMorph.sweepDirection`.** The sheen's physical sweep can now be set
+  apart from the text's layout: `ltr` sweeps left to right, `rtl` right to
+  left, mixed-script labels included. Exit and arrival both follow it, and the
+  first sheen colour starts at its origin. Left null, each text keeps sweeping
+  in its own reading order.
+
 ## 1.0.0
 
 The engine is finished: every letter moves whole, every sweep reads the way

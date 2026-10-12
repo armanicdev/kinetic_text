@@ -33,6 +33,10 @@ abstract class MorphStyle {
     List<Color> sheen,
     double scaleFrom,
     double stagger,
+    StaggerOrder order,
+    TextDirection? sweepDirection,
+    double exitEnd,
+    double enterStart,
   }) = SheenMorph;
 
   /// Old letters lift away and fade, new ones rise into place from below —
@@ -115,8 +119,19 @@ class SheenMorph extends MorphStyle {
   const SheenMorph({
     this.sheen = const [Color(0xFFFFFFFF)],
     this.scaleFrom = 0.8,
+    this.sweepDirection,
     super.stagger,
+    super.order,
+    super.exitEnd,
+    super.enterStart,
   });
+
+  /// Physical direction of both the departure and arrival sheen.
+  /// Null follows [order] in each text's own reading order. An explicit
+  /// direction walks the shaped units from left to right or right to left,
+  /// including mixed-script text, without changing paragraph direction.
+  /// The colour sequence follows the same sweep, starting with [sheen.first].
+  final TextDirection? sweepDirection;
 
   /// One colour, or a list flowed along the reading order.
   final List<Color> sheen;
@@ -149,10 +164,11 @@ class SheenMorph extends MorphStyle {
       other is SheenMorph &&
       listEquals(other.sheen, sheen) &&
       other.scaleFrom == scaleFrom &&
+      other.sweepDirection == sweepDirection &&
       sameBase(other);
 
   @override
-  int get hashCode => Object.hash(Object.hashAll(sheen), scaleFrom, baseHash);
+  int get hashCode => Object.hash(Object.hashAll(sheen), scaleFrom, sweepDirection, baseHash);
 }
 
 /// Leave one way, arrive from the other. See [MorphStyle.slide].
@@ -767,7 +783,10 @@ class _MorphPainter extends CustomPainter {
             if (u.index >= diff.prefix && u.index < to.units.length - diff.suffix)
               u.index,
         ],
-        super(repaint: progress);
+        super(repaint: progress) {
+    _outRanks = _sweepRanks(from, _fromMid);
+    _inRanks = _sweepRanks(to, _toMid);
+  }
 
   final ShapedText from;
   final ShapedText to;
@@ -787,6 +806,30 @@ class _MorphPainter extends CustomPainter {
   final List<UnitPose> _toPoses;
   final List<int> _fromMid;
   final List<int> _toMid;
+  late final List<int> _outRanks;
+  late final List<int> _inRanks;
+
+  List<int> _sweepRanks(ShapedText shaped, List<int> indices) {
+    final morph = style;
+    final direction = morph is SheenMorph ? morph.sweepDirection : null;
+    if (direction == null) {
+      final slice = UnitSlice(indices);
+      return List.generate(indices.length, (k) => slice.rank(k, style.order));
+    }
+    final visual = List<int>.generate(indices.length, (k) => k);
+    visual.sort((a, b) {
+      final x = shaped.units[indices[a]].rect.center.dx.compareTo(
+        shaped.units[indices[b]].rect.center.dx,
+      );
+      final sorted = x == 0 ? a.compareTo(b) : x;
+      return direction == TextDirection.ltr ? sorted : -sorted;
+    });
+    final ranks = List<int>.filled(indices.length, 0);
+    for (var rank = 0; rank < visual.length; rank++) {
+      ranks[visual[rank]] = rank;
+    }
+    return ranks;
+  }
 
   static Offset _origin(ShapedText s, Size box, Alignment a) => Offset(
         (box.width - s.width) * (a.x + 1) / 2,
@@ -819,14 +862,13 @@ class _MorphPainter extends CustomPainter {
         _fromPoses[i].opacity = 0; // the TO painter draws the shared letters
       }
     }
-    final outSlice = UnitSlice(_fromMid);
     final nOut = _fromMid.length;
     for (var k = 0; k < nOut; k++) {
       final i = _fromMid[k];
-      final local = staggered(outP, outSlice.rank(k, style.order), nOut, style.stagger);
+      final local = staggered(outP, _outRanks[k], nOut, style.stagger);
       final e = style.exitCurve.transform(local);
       style.exit(_fromPoses[i], e, lineH, up);
-      final g = style.glint(local, k, nOut);
+      final g = style.glint(local, _outRanks[k], nOut);
       if (g != null) {
         fromFrame.ink.add(InkPass(units: [i], color: g, blendMode: BlendMode.srcATop));
       }
@@ -849,14 +891,13 @@ class _MorphPainter extends CustomPainter {
       final toX = toOrigin.dx + u.rect.left;
       _toPoses[i].dx = (fromX - toX) * (1 - settle);
     }
-    final inSlice = UnitSlice(_toMid);
     final nIn = _toMid.length;
     for (var k = 0; k < nIn; k++) {
       final i = _toMid[k];
-      final local = staggered(inP, inSlice.rank(k, style.order), nIn, style.stagger);
+      final local = staggered(inP, _inRanks[k], nIn, style.stagger);
       final e = style.enterCurve.transform(local);
       style.enter(_toPoses[i], e, lineH, up);
-      final g = style.glint(local, k, nIn);
+      final g = style.glint(local, _inRanks[k], nIn);
       if (g != null) {
         toFrame.ink.add(InkPass(units: [i], color: g, blendMode: BlendMode.srcATop));
       }
