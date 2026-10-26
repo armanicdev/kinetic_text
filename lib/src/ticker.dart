@@ -40,15 +40,20 @@ enum RollDirection {
 /// the SwiftUI `.contentTransition(.numericText())` model, on a real drum.
 ///
 /// Each character sits in a slot keyed from the [anchor] edge and owns a
-/// CONTINUOUS wheel that eases toward its target every frame — not a 0→1
-/// timeline that restarts on each change. Retarget it mid-flight and every
-/// wheel just redirects from where it is: no reset, no stutter, and a digit
+/// CONTINUOUS wheel on a damped spring — not a 0→1 timeline that restarts on
+/// each change. The wheel gathers speed, then lands with the faintest settle,
+/// the way a real drum does; retarget it mid-flight and it redirects from
+/// where it is with the speed it has: no reset, no stutter, and a digit
 /// spins through the digits in between. Digits ride the 0–9 ring the shorter
 /// way round; any other character turns one step from the old glyph to the
-/// new. The motion is frame-rate independent (exponential smoothing on real
-/// dt). Glyphs foreshorten and dim as they curve over the drum and are gone
-/// past its window — no clip, no ghost. The field's width eases as characters
-/// come and go; entering slots fade in, leaving slots fade out.
+/// new. The motion is frame-rate independent (the spring is integrated on
+/// real dt). A fast glyph smears along its travel ([motionBlur]), and the
+/// slots set off one after another from the [anchor] edge ([stagger]), a
+/// carry rippling up the figure. Glyphs foreshorten and dim as they curve
+/// over the drum and are gone past its window — no clip, no ghost. The
+/// field's width eases as characters come and go; a new digit rolls in on
+/// its own wheel as it fades in, other new characters fade in, and leaving
+/// ones fade out.
 ///
 /// Characters are laid out one per slot, so this is for figures and Latin
 /// labels. Western (0–9), Arabic-Indic (٠–٩) and Persian (۰–۹) digits each
@@ -72,6 +77,8 @@ class TickerText extends StatefulWidget {
     this.duration = const Duration(milliseconds: 600),
     this.anchor = TickerAnchor.right,
     this.direction = RollDirection.auto,
+    this.stagger = const Duration(milliseconds: 24),
+    this.motionBlur = true,
     this.reduceMotion,
     this.semanticsLabel,
   });
@@ -82,8 +89,8 @@ class TickerText extends StatefulWidget {
   /// Merged over the ambient [DefaultTextStyle].
   final TextStyle? style;
 
-  /// The tempo of a roll. The wheels chase their target with a time constant
-  /// of about a fifth of this, so a change settles within it.
+  /// The tempo of a roll: a wheel's spring is tuned so a change has landed
+  /// within it.
   final Duration duration;
 
   /// The edge slots are keyed from.
@@ -91,6 +98,16 @@ class TickerText extends StatefulWidget {
 
   /// Which way non-digit characters turn.
   final RollDirection direction;
+
+  /// How long each moving slot waits after the one nearer the [anchor] edge
+  /// before it sets off, so a change ripples across the figure. Only a wheel
+  /// at rest waits; one already turning redirects at once. [Duration.zero]
+  /// sets every wheel off together.
+  final Duration stagger;
+
+  /// Whether a fast-turning glyph smears along its travel, in proportion to
+  /// its speed. Settled glyphs are always crisp.
+  final bool motionBlur;
 
   /// Null reads the platform "disable animations" flag.
   final bool? reduceMotion;
@@ -134,6 +151,12 @@ class _Slot {
   final int zero;
   double wheel;
   double wheelTo;
+
+  /// The wheel's speed, in steps a second.
+  double velocity = 0;
+
+  /// Seconds before the wheel sets off ([TickerText.stagger]).
+  double delay = 0;
   double alpha = 1;
   double alphaTo = 1;
 
@@ -154,7 +177,16 @@ class _TickerTextState extends State<TickerText>
   TextStyle? _resolvedStyle;
   TextScaler _scaler = TextScaler.noScaling;
 
-  double get _tau => widget.duration.inMicroseconds / 1e6 * 0.22;
+  double get _seconds => math.max(widget.duration.inMicroseconds / 1e6, 0.05);
+
+  /// The fades' and the width's time constant.
+  double get _tau => _seconds * 0.22;
+
+  /// The wheels' spring: damped a touch under critical, so a turn lands with
+  /// a settle a fraction of a step deep and no visible bounce; its natural
+  /// frequency puts the landing (within 1%) at [TickerText.duration].
+  static const double _zeta = 0.82;
+  double get _omega => 4.6 / (_zeta * _seconds);
 
   @override
   void initState() {
@@ -232,6 +264,7 @@ class _TickerTextState extends State<TickerText>
     _displayed = value;
     final target = _parse(value);
     final slots = _model.slots;
+    final before = {for (final e in slots.entries) e.key: e.value.wheelTo};
     final live = {...slots.keys, ...target.keys};
     for (final q in live) {
       final ch = target[q];
@@ -242,9 +275,7 @@ class _TickerTextState extends State<TickerText>
       }
       final d = _digitOf(ch);
       if (slot == null) {
-        final s = d != null ? _Slot.digit(d.$1, d.$2) : _Slot.glyph(ch);
-        s.alpha = animate ? 0 : 1;
-        slots[q] = s;
+        slots[q] = _enter(ch, d, up: up, animate: animate);
         continue;
       }
       slot.alphaTo = 1;
@@ -271,9 +302,7 @@ class _TickerTextState extends State<TickerText>
       } else {
         // Digit ↔ non-digit, or another script's digits: a fresh slot,
         // cross-faded.
-        final s = d != null ? _Slot.digit(d.$1, d.$2) : _Slot.glyph(ch);
-        s.alpha = animate ? 0 : 1;
-        slots[q] = s;
+        slots[q] = _enter(ch, d, up: up, animate: animate);
       }
     }
     _model.widthTo = _model.measure(target);
@@ -281,10 +310,38 @@ class _TickerTextState extends State<TickerText>
       _settleNow();
       return;
     }
+    // The ripple: a wheel at rest whose target moved waits its turn, counted
+    // from the anchor edge over the wheels that move.
+    final step = widget.stagger.inMicroseconds / 1e6;
+    if (step > 0) {
+      var rank = 0;
+      final keys = slots.keys.toList()..sort();
+      for (final q in keys) {
+        final s = slots[q]!;
+        if (before[q] == s.wheelTo) continue;
+        final resting = s.velocity.abs() < 0.05 && s.delay <= 0;
+        if (resting) s.delay = rank * step;
+        rank++;
+      }
+    }
     if (!_ticker.isActive) {
       _last = Duration.zero;
       _ticker.start();
     }
+  }
+
+  /// A new slot for [ch]. A new digit arrives one step back on its wheel
+  /// and rolls in the way the figure turns as it fades in; anything else
+  /// fades in where it stands.
+  static _Slot _enter(String ch, (int, int)? d, {
+    required bool up,
+    required bool animate,
+  }) {
+    final s = d != null ? _Slot.digit(d.$1, d.$2) : _Slot.glyph(ch);
+    if (!animate) return s;
+    s.alpha = 0;
+    if (s.isDigit) s.wheel = s.wheelTo + (up ? -1 : 1);
+    return s;
   }
 
   /// Absolute target nearest [current] whose value mod 10 == [digit].
@@ -299,21 +356,41 @@ class _TickerTextState extends State<TickerText>
         : (elapsed - _last).inMicroseconds / 1e6;
     _last = elapsed;
     final f = 1 - math.exp(-dt / _tau);
+    final omega = _omega;
     var moving = false;
     final gone = <int>[];
     for (final entry in _model.slots.entries) {
       final s = entry.value;
-      if ((s.wheelTo - s.wheel).abs() < 0.0006) {
+      var run = dt;
+      if (s.delay > 0) {
+        // Waiting its turn: the wheel and its fade both hold.
+        s.delay -= dt;
+        moving = true;
+        if (s.delay > 0) continue;
+        run = -s.delay;
+        s.delay = 0;
+      }
+      final fr = run == dt ? f : 1 - math.exp(-run / _tau);
+      if ((s.wheelTo - s.wheel).abs() < 0.0006 && s.velocity.abs() < 0.01) {
         s.wheel = s.wheelTo;
+        s.velocity = 0;
       } else {
-        s.wheel += (s.wheelTo - s.wheel) * f;
+        // Semi-implicit Euler in short substeps: stable at any frame rate.
+        final n = (run * 240).ceil();
+        final h = n == 0 ? 0.0 : run / n;
+        for (var i = 0; i < n; i++) {
+          final a = omega * omega * (s.wheelTo - s.wheel) -
+              2 * _zeta * omega * s.velocity;
+          s.velocity += a * h;
+          s.wheel += s.velocity * h;
+        }
         moving = true;
       }
       if ((s.alphaTo - s.alpha).abs() < 0.004) {
         s.alpha = s.alphaTo;
         if (s.alphaTo == 0) gone.add(entry.key);
       } else {
-        s.alpha += (s.alphaTo - s.alpha) * f;
+        s.alpha += (s.alphaTo - s.alpha) * fr;
         moving = true;
       }
     }
@@ -338,6 +415,8 @@ class _TickerTextState extends State<TickerText>
     for (final entry in _model.slots.entries) {
       final s = entry.value;
       s.wheel = s.wheelTo;
+      s.velocity = 0;
+      s.delay = 0;
       if (s.alphaTo == 0) {
         gone.add(entry.key);
       } else {
@@ -378,6 +457,7 @@ class _TickerTextState extends State<TickerText>
       model: _model,
       label: widget.semanticsLabel ?? widget.text,
       textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
+      motionBlur: widget.motionBlur && !_reduced,
     );
   }
 }
@@ -486,25 +566,36 @@ class _TickerRenderWidget extends LeafRenderObjectWidget {
     required this.model,
     required this.label,
     required this.textDirection,
+    required this.motionBlur,
   });
   final _TickerModel model;
   final String label;
   final TextDirection textDirection;
+  final bool motionBlur;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderTickerText(model, label, textDirection);
+      _RenderTickerText(model, label, textDirection)..motionBlur = motionBlur;
 
   @override
   void updateRenderObject(BuildContext context, _RenderTickerText renderObject) {
     renderObject
       ..label = label
-      ..textDirection = textDirection;
+      ..textDirection = textDirection
+      ..motionBlur = motionBlur;
   }
 }
 
 class _RenderTickerText extends RenderBox {
   _RenderTickerText(this._model, this._label, this._textDirection);
+
+  /// Smear a fast glyph along its travel ([TickerText.motionBlur]).
+  bool motionBlur = true;
+
+  /// The smear: a shutter this long, in seconds, and its cap as a fraction
+  /// of the line height.
+  static const double _shutter = 1 / 150;
+  static const double _maxSmear = 0.12;
 
   final _TickerModel _model;
   double _laidOutWidth = -1;
@@ -644,10 +735,29 @@ class _RenderTickerText extends RenderBox {
         final turn = Matrix4.translationValues(cx, cy + dy, 0)
           ..multiply(Matrix4.diagonal3Values(1, scaleY, 1))
           ..multiply(Matrix4.translationValues(-cx, -cy, 0));
-        paint.imageFilter = ui.ImageFilter.matrix(
+        final ui.ImageFilter matrix = ui.ImageFilter.matrix(
           turn.storage,
           filterQuality: FilterQuality.medium,
         );
+        // The glyph's own speed down the drum's face, as a shutter sees it.
+        final speed = s.velocity.abs() *
+            Drum.stepAngle *
+            Drum.radiusFraction *
+            m.height *
+            math.cos(theta).abs();
+        final smear = motionBlur
+            ? math.min(speed * _shutter, m.height * _maxSmear)
+            : 0.0;
+        paint.imageFilter = smear < 0.3
+            ? matrix
+            : ui.ImageFilter.compose(
+                outer: ui.ImageFilter.blur(
+                  sigmaX: 0.001,
+                  sigmaY: smear,
+                  tileMode: TileMode.decal,
+                ),
+                inner: matrix,
+              );
         bounds = bounds.expandToInclude(MatrixUtils.transformRect(turn, rest));
       }
       canvas.saveLayer(bounds, paint);

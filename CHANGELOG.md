@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.0
+
+`TickerText` turns like a real counter.
+
+- **Spring wheels.** Every character's wheel rides a damped spring instead of
+  chasing its target on an exponential curve. A digit gathers speed, then
+  lands with the faintest settle, within `duration`, where it used to crawl
+  through a long tail. A new value mid-roll keeps the speed the wheel has, so
+  a run of changes reads as one continuous motion.
+- **Motion blur.** A fast-turning glyph smears along its travel in proportion
+  to its speed, as a shutter would see it; settled glyphs stay crisp.
+  `motionBlur: false` turns it off, and reduced motion never smears.
+- **The ripple.** `stagger` (24 ms by default) sets each moving wheel off a
+  beat after the one nearer the anchor edge, a carry rippling up the figure.
+  Only a wheel at rest waits; one already turning redirects at once.
+  `Duration.zero` sets every wheel off together.
+- **New digits roll in.** A digit that joins the figure (999 to 1,000) arrives
+  one step back on its own wheel and rolls into place as it fades in, the way
+  the figure turns.
+
 ## 1.1.0
 
 - **`SheenMorph.sweepDirection`.** The sheen's physical sweep can now be set

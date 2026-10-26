@@ -41,7 +41,7 @@ like an odometer.
 
 ```yaml
 dependencies:
-  kinetic_text: ^1.1.0
+  kinetic_text: ^1.2.0
 ```
 
 ```dart
@@ -197,13 +197,18 @@ on the shaped paragraph, it keeps cursive scripts joined.
 
 `TickerText` is the odometer proper — the SwiftUI `numericText` feel. Each
 character sits in a slot keyed from the right (or `TickerAnchor.left` for a
-label) and owns a **continuous wheel** that chases its target every frame,
-not a 0→1 timeline that restarts on each change. Set a new value mid-roll
-and every wheel redirects from where it is; a digit that has to go from 2 to
-7 passes 3, 4, 5 and 6 on the way, the shorter way round the ring. Western
-(`0–9`), Arabic-Indic (`٠–٩`) and Persian (`۰–۹`) digits each turn on their
-own ring. The width eases as characters come and go; new slots fade in,
-dropped slots fade out. Pass a formatted string and a tabular-figure style:
+label) and owns a **continuous wheel on a damped spring**, not a 0→1
+timeline that restarts on each change: it gathers speed and lands within
+`duration` with the faintest settle. Set a new value mid-roll and every
+wheel redirects from where it is, keeping its speed; a digit that has to go
+from 2 to 7 passes 3, 4, 5 and 6 on the way, the shorter way round the ring.
+A fast glyph smears along its travel (`motionBlur`), and the moving wheels
+set off a beat apart from the anchor edge (`stagger`, 24 ms), a carry
+rippling up the figure. Western (`0–9`), Arabic-Indic (`٠–٩`) and Persian
+(`۰–۹`) digits each turn on their own ring. The width eases as characters
+come and go; a new digit rolls in on its own wheel as it fades in, other new
+slots fade in, dropped slots fade out. Pass a formatted string and a
+tabular-figure style:
 
 ```dart
 TickerText('1,250,000', style: figure.copyWith(fontFeatures: const [FontFeature.tabularFigures()]));

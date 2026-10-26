@@ -2,7 +2,7 @@ name: kinetic_text
 description: >-
   Kinetic typography for Flutter: letter, word and line motion from one shaped
   paragraph. Every letter moves whole; Arabic and Kurdish stay joined.
-version: 1.1.0
+version: 1.2.0
 
 # Authored by Armanic Studio (https://pub.dev/publishers/armanic.studio).
 repository: https://github.com/armanicdev/kinetic_text

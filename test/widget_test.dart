@@ -362,6 +362,61 @@ void _tickerTests() {
     expect(tester.takeException(), isNull);
   });
 
+  // How long a roll from [from] to [to] keeps its clock, frame by frame.
+  Future<Duration> rollTime(
+    WidgetTester tester,
+    String from,
+    String to, {
+    Duration stagger = Duration.zero,
+    bool motionBlur = true,
+  }) async {
+    Widget ticker(String v) => host(TickerText(
+          v,
+          duration: const Duration(milliseconds: 600),
+          stagger: stagger,
+          motionBlur: motionBlur,
+        ));
+    // A fresh ticker at rest on [from], then the change.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(ticker(from));
+    await tester.pump();
+    await tester.pumpWidget(ticker(to));
+    var t = Duration.zero;
+    const frame = Duration(milliseconds: 16);
+    while (tester.binding.transientCallbackCount > 0) {
+      await tester.pump(frame);
+      expect(tester.takeException(), isNull);
+      t += frame;
+      if (t > const Duration(seconds: 5)) fail('the roll never settled');
+    }
+    return t;
+  }
+
+  testWidgets('a ticker lands on its spring and lets go of its clock',
+      (tester) async {
+    final t = await rollTime(tester, '1,240', '1,875');
+    expect(t, lessThan(const Duration(milliseconds: 1600)),
+        reason: 'lands within its duration, settles soon after');
+    expect(t, greaterThan(const Duration(milliseconds: 300)),
+        reason: 'a roll, not a snap');
+  });
+
+  testWidgets('a ripple sets the far digits off later', (tester) async {
+    final together = await rollTime(tester, '111', '555');
+    final ripple = await rollTime(tester, '111', '555',
+        stagger: const Duration(milliseconds: 120));
+    expect(ripple - together,
+        greaterThan(const Duration(milliseconds: 180)),
+        reason: 'the third digit waits two beats');
+  });
+
+  testWidgets('a turning digit paints with and without its smear',
+      (tester) async {
+    await rollTime(tester, '0', '9');
+    await rollTime(tester, '0', '9', motionBlur: false);
+    await rollTime(tester, '99', '100');
+  });
+
   testWidgets('a ticker sits on the text baseline and snaps under reduced motion',
       (tester) async {
     await tester.pumpWidget(host(
