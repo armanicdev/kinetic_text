@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1
+
+- `TickerText` keeps its digits in order when its `anchor` changes on a live
+  widget, as it does when the app switches between a right-to-left and a
+  left-to-right language. The wheels were rebuilt under the old anchor, so
+  the figure read backwards until it remounted.
+
 ## 1.2.0
 
 `TickerText` turns like a real counter.
