@@ -210,7 +210,11 @@ class _TickerTextState extends State<TickerText>
     super.didUpdateWidget(old);
     _resolve();
     if (widget.anchor != old.anchor) {
-      // A different keying: rebuild the slots from scratch, no roll.
+      // A different keying: rebuild the slots from scratch, no roll, and
+      // paint them from the new edge too. The slots were keyed by the new
+      // anchor while the painter still laid them out from the old one, so
+      // 415 read 514 after a switch to a right-to-left language.
+      _model.anchor = widget.anchor;
       _model.slots.clear();
       _retarget(widget.text, animate: false);
     } else if (widget.text != _displayed) {
